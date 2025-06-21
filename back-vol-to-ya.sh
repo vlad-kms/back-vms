@@ -135,21 +135,3 @@ fi
 debug " END =========================================================="
 
 exit 0
-
-
-
-nvm=$1
-dest=$2
-nsp=$(zfs list -t all -r "${src}/${nvm}" | grep -v NAME | sort -k1 | tail -n 1| awk '{print $1}')
-
-
-echo "$nsp"
-echo "$dest"
-echo "$nsp_only"
-
-#exit 0
-
-echo "zfs send \"$nsp\" > \"${dest}/${nsp_only}.zfs\" && tar -cvzf \"${dest}/${nsp_only}.zfs.tgz\" \"${dest}/${nsp_only}.zfs\""
-date 
-zfs send "$nsp" > "${dest}/${nsp_only}.zfs" && tar -cvzf "${dest}/${nsp_only}.zfs.tgz" --remove-files "${dest}/${nsp_only}.zfs"
-date
