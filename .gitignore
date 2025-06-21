@@ -1,0 +1,9 @@
+**/.idea
+**/*.ini
+**/*.cfg
+**/*.iml
+**/.vscode
+**/*.code-workspace
+**/.bak
+**/test
+**log

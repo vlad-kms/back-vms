@@ -1,0 +1,2 @@
+/vmfs/volumes/ds-002/backups/ghettoVCB.sh -f /vmfs/volumes/ds-002/backups/cfg/vm-list-tue -c /vmfs/volumes/ds-002/backups/cfg/vm-cfg -g /vmfs/volumes/ds-002/backups/cfg/ghettoVCB.conf
+# > "/var/log/$(date +%Y%m%d-%H%M%S)-vgetto-mon.log"

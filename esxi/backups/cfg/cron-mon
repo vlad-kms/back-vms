@@ -1,0 +1,14 @@
+
+/bin/kill $(cat /var/run/crond.pid)
+/bin/echo "5 0 * * 1 /opt/ghettovcb/bin/ghetto-mon > /vmfs/volumes/ds-002/log/\$(date +%Y%m%d-%H%M%S)-vgetto-mon.log" >> /var/spool/cron/crontabs/root
+/bin/echo "5 2 * * 1 /opt/ghettovcb/bin/ghetto-tue > /vmfs/volumes/ds-002/log/\$(date +%Y%m%d-%H%M%S)-vgetto-tue.log" >> /var/spool/cron/crontabs/root
+/bin/echo "5 0 * * 2 /opt/ghettovcb/bin/ghetto-wed > /vmfs/volumes/ds-002/log/\$(date +%Y%m%d-%H%M%S)-vgetto-wed.log" >> /var/spool/cron/crontabs/root
+/bin/crond
+
+
+/bin/kill $(cat /var/run/crond.pid)
+#0 0 * * 1 /opt/volumes/simplejack-local-storage/ghettoVCB.sh -f /vmfs/volumes/simplejack-local-storage/backuplist > /vmfs/volumes/simplejack-local-storage/ghettoVCB-backup-\$(date +\\%s).log
+5 0 * * 1 /opt/ghettovcb/bin/ghetto-mon > "/vmfs/volumes/ds-002/log/$(date +%Y%m%d-%H%M%S)-vgetto-mon.log"
+5 2 * * 1 /opt/ghettovcb/bin/ghetto-tue > "/vmfs/volumes/ds-002/log/$(date +%Y%m%d-%H%M%S)-vgetto-tue.log"
+5 0 * * 2 /opt/ghettovcb/bin/ghetto-wed > "/vmfs/volumes/ds-002/log/$(date +%Y%m%d-%H%M%S)-vgetto-wed.log"
+/bin/busybox crond
