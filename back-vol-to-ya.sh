@@ -25,7 +25,7 @@ debug() {
   fi
 }
 
-if ! args=$(getopt -u -o 'hn:d:s:c' --long 'help,name:,dest:,source:,debug,create-snapshot,dry-run' -- "$@"); then
+if ! args=$(getopt -u -o 'hn:d:s:c' --long 'help,name:,dest:,source:,debug,create-snapshot,dry-run,no-remove-tmp' -- "$@"); then
   help;
   exit 1
 fi
@@ -43,7 +43,7 @@ for i; do
       shift 2
       ;;
     '-d' | '--dest')
-      dest_=$2;
+      dest=$2;
       shift 2
       ;;
     '-s' | '--source')
@@ -60,6 +60,10 @@ for i; do
       ;;
     '--dry-run')
       _dry_run_=1;
+      shift
+      ;;
+    '--no-remove-tmp')
+      _no_remove_tmp_=1
       shift
       ;;
     else)
@@ -80,6 +84,12 @@ src=${src:='base-pool/vms'}
 _debug_=${_debug_:=0}
 _dry_run_=${_dry_run_:=0}
 _create_sn_=${_create_sn_:=0}
+_no_remove_tmp_=${_no_remove_tmp_:=0}
+if [ $_no_remove_tmp_ -ne 0 ]; then
+  flag_remove=""
+else
+  flag_remove="--remove-files"
+fi
 
 debug " BEGIN ========================================================"
 debug "Name VOL: $nvm"
@@ -87,6 +97,7 @@ debug "Source Snapshot: $src"
 debug "Destination0 path: $dest"
 debug "dry-run: $_dry_run_"
 debug "create-sn: $_create_sn_"
+debug "_no_remove_tmp_: $_no_remove_tmp_"
 
 if zfs list -t all -r "${src}/${nvm}" 1>/dev/null 2>/dev/null; then
   # есть dataset с именем $nvm
@@ -119,12 +130,13 @@ if zfs list -t all -r "${src}/${nvm}" 1>/dev/null 2>/dev/null; then
   dest_file_arc="${dest}/${nsp_only}.zfs.tgz"
   # проверить существование файла архива, и если есть то пропустить
   if [ ! -e "$dest_file_arc" ]; then
-    # не существetn файла архива
+    # не существует файла архива
     if [ $_dry_run_ -ne 0 ]; then
-      echo "zfs send \"$nsp\" > \"${dest_file}\" && tar -cvzf \"${dest_file_arc}\" --remove-files \"${dest_file}\""
+      echo "zfs send \"$nsp\" > \"${dest_file}\" && tar -cvzf \"${dest_file_arc}\" $flag_remove \"${dest_file}\""
     else
       debug "Send snapshot ${nsp} to file ${dest_file_arv}"
-      zfs send "$nsp" > "${dest_file}" && tar -cvzf "${dest_file_arc}" --remove-files "${dest_file}" 1> /dev/null 2> /dev/null
+      #zfs send "$nsp" > "${dest_file}" && tar -cvzf "${dest_file_arc}" --remove-files "${dest_file}" 1> /dev/null 2> /dev/null
+      zfs send "$nsp" > "${dest_file}" && tar -cvzf "${dest_file_arc}" $flag_remove "${dest_file}" 1> /dev/null 2> /dev/null
     fi
   else
     debug "File ${dest_file_arc} already exists"
@@ -135,3 +147,21 @@ fi
 debug " END =========================================================="
 
 exit 0
+
+
+
+nvm=$1
+dest=$2
+nsp=$(zfs list -t all -r "${src}/${nvm}" | grep -v NAME | sort -k1 | tail -n 1| awk '{print $1}')
+
+
+echo "$nsp"
+echo "$dest"
+echo "$nsp_only"
+
+#exit 0
+
+echo "zfs send \"$nsp\" > \"${dest}/${nsp_only}.zfs\" && tar -cvzf \"${dest}/${nsp_only}.zfs.tgz\" \"${dest}/${nsp_only}.zfs\""
+date 
+zfs send "$nsp" > "${dest}/${nsp_only}.zfs" && tar -cvzf "${dest}/${nsp_only}.zfs.tgz" --remove-files "${dest}/${nsp_only}.zfs"
+date
