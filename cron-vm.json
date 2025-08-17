@@ -1,0 +1,20 @@
+{
+    "default": {
+      "Enabled": "True",
+      "LifeTime": "1m",
+      "Destination": "/mnt/base-pool/vms",
+      "Compression": "True",
+      "Source": "base-pool/vms",
+      "Debug": "False",
+      "DryRun": "False",
+      "CreateSnapshot": "True",
+      "NoRemoveTemp": "False",
+      "LogFile": ""
+    },
+    "dev-deb-001": {
+      "Debug": "True"
+    },
+    "dev-deb-003": {
+        "Enabled": "False"
+    }
+}

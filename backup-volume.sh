@@ -1,14 +1,28 @@
 #!/bin/bash
 # backup to yandex cloud
 
+# получить ключи верхнего уровня
+#jq 'keys' cron-bvm.json
+
 USE_DATE_LOG=1
 
 help() {
-  str="
+  echo "
   Usage:
-    back-to-ya.sh --name NAME_VM --source SRC_VOL --dest DST_DIR
+    backup-volume.sh --name NAME_VM --source SRC_VOL --dest DST_DIR
+    Params:
+      -h, --help             показать справку и выйти
+      -g, --config           имя JSON файла конфигурации для VM и CONTAINERS которые требуется резервировать (по умолчанию: cron-vm.json)
+      -n, --name             имя VOLUME для резервного копирования
+      -d, --dest             путь к каталогу, в который будет сохранен архив
+      -s, --source           путь к источнику для резервного копирования
+      -c, --create-snapshot  создать snapshot перед резервным копированием
+
+      -l, --log              файл для записи лога, если не указан, то не логировать
+      --dry-run              не выполнять команды фактически, только выводить их на экран
+      --no-remove-tmp        не удалять временные файлы после архивирования
+      --debug                режим отладки
   "
-  echo $str
 }
 
 debug() {
@@ -27,6 +41,52 @@ debug() {
     echo -e "${str_dt}${1}" >> "$_log_file_"
   fi
 }
+
+get_json_value() {
+  local json_file="$1"
+  local section="$2"
+  local _key="$3"
+  local default="$4"
+
+  if [ ! -f "$json_file" ]; then
+    echo "File $json_file not found" 1>&2
+    echo ""
+    exit 1
+  fi
+
+  # local _value=""
+
+  # проверить наличие параметра $2 (section)
+  if [[ -n "$section" ]]; then
+    # считать значение из json файла в .section.key
+    local _value="$(jq -r ".$section.$_key" "$json_file" | sed -E 's/^\s*$//p')"
+  else
+    # считать значение из json файла в .key, т.е. в корне json файла
+    local _value="$(jq -r "$_key" "$json_file" | sed -E 's/^\s*$//p')"
+  fi
+  if [[ -z "$_value" ]]; then
+    # подготовить значение по-умолчанию.
+    # Если передан параметр $4 (default), то вернуть это значение и exit 0
+    # Если не передан параметр $4 (default), то считать из json файла в секции .default.$_key и вернуть это значение и exit 0
+    # Иначе вернуть пустую строку и exit 1
+    if [ -z "$default" ]; then
+      default="$(jq -r ".default.$_key" "$json_file" | sed -E 's/^\s*$//p')"
+    fi
+    if [[ -z "$default" ]]; then
+      echo ""
+      exit 1
+    else
+      echo "$default"
+    fi
+  else
+    echo "$_value"
+  fi
+  exit 0
+}
+
+######################################################################################
+######################################################################################
+######################################################################################
 
 if ! args=$(getopt -u -o 'hn:d:s:cl:' --long 'help,name:,dest:,source:,debug,create-snapshot,dry-run,no-remove-tmp,log:' -- "$@"); then
   help;
@@ -109,6 +169,7 @@ debug "create-sn: $_create_sn_"
 debug "_no_remove_tmp_: $_no_remove_tmp_"
 debug "_log_file_: $_log_file_"
 
+
 if zfs list -t all -r "${src}/${nvm}" 1>/dev/null 2>/dev/null; then
   # есть dataset с именем $nvm
   if [ $_create_sn_ -ne 0 ]; then
@@ -157,21 +218,3 @@ fi
 debug " END =========================================================="
 
 exit 0
-
-
-
-nvm=$1
-dest=$2
-nsp=$(zfs list -t all -r "${src}/${nvm}" | grep -v NAME | sort -k1 | tail -n 1| awk '{print $1}')
-
-
-echo "$nsp"
-echo "$dest"
-echo "$nsp_only"
-
-#exit 0
-
-echo "zfs send \"$nsp\" > \"${dest}/${nsp_only}.zfs\" && tar -cvzf \"${dest}/${nsp_only}.zfs.tgz\" \"${dest}/${nsp_only}.zfs\""
-date 
-zfs send "$nsp" > "${dest}/${nsp_only}.zfs" && tar -cvzf "${dest}/${nsp_only}.zfs.tgz" --remove-files "${dest}/${nsp_only}.zfs"
-date

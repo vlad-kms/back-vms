@@ -4,11 +4,10 @@
 USE_DATE_LOG=1
 
 help() {
-  str="
+  echo "
   Usage:
     back-to-ya.sh --name NAME_VM --source SRC_VOL --dest DST_DIR
   "
-  echo $str
 }
 
 debug() {
