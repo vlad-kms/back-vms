@@ -2,9 +2,9 @@
     "default": {
       "Enabled": "True",
       "LifeTime": "1m",
-      "Destination": "/mnt/base-pool/vms",
+      "Destination": "/mnt/test/vms",
       "Compression": "True",
-      "Source": "base-pool/vms",
+      "Source": "test/ds1/back",
       "Debug": "False",
       "DryRun": "False",
       "CreateSnapshot": "True",
@@ -13,7 +13,12 @@
       "Datasets": []
     },
     "dev-deb-001": {
-      "Debug": "True"
+      "Debug": "True",
+      "DryRun": "True",
+      "Datasets": [
+        "ds1",
+        "ds2", "ds3"
+      ]
     },
     "dev-deb-003": {
         "Enabled": "False"
