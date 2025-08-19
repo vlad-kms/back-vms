@@ -1,0 +1,15 @@
+{
+    "default": {
+      "Enabled": "True",
+      "LifeTime": "d",
+      "AddNameVMToDest": "True",
+      "Destination": "/mnt/base-pool/vms/backup/virtual-machines",
+      "Compression": "True",
+      "Source": "base-pool/.ix-virt/virtual-machines",
+      "Debug": "False",
+      "DryRun": "False",
+      "CreateSnapshot": "True",
+      "NoRemoveTemp": "False",
+      "Datasets": []
+    }
+}

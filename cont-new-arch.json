@@ -1,0 +1,18 @@
+{
+    "default": {
+      "Enabled": "True",
+      "LifeTime": "d",
+      "AddNameVMToDest": "True",
+      "Destination": "/mnt/base-pool/vms/backup/containers",
+      "Compression": "True",
+      "Source": "base-pool/.ix-virt/containers",
+      "Debug": "False",
+      "DryRun": "False",
+      "CreateSnapshot": "True",
+      "NoRemoveTemp": "False",
+      "Datasets": []
+    },
+    "c-001": {
+      "DryRun": "False"
+    }
+}
