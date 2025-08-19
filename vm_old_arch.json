@@ -1,0 +1,19 @@
+{
+    "default": {
+      "Enabled": "True",
+      "LifeTime": "d",
+      "AddNameVMToDest": "True",
+      "Destination": "/mnt/base-pool/vms/backup",
+      "Compression": "True",
+      "Source": "base-pool/vms",
+      "Debug": "False",
+      "DryRun": "False",
+      "CreateSnapshot": "False",
+      "NoRemoveTemp": "False",
+      "Datasets": []
+    },
+    "dev_deb_001": {
+    },
+    "dev_deb_003": {
+    }
+}
