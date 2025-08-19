@@ -1,0 +1,30 @@
+{
+    "default": {
+        "TypeVM": "HV",
+        "LifeTime": "1m",
+        "Destination": "h:\\vm.backup",
+        "CompressionLevel": "Fast",
+        "CompressionMethod": "Default",
+        "CaptureLiveState": "CaptureDataConsistentState",
+        "Compression": "True",
+        "Interactive": "False",
+        "Enabled": "True",
+        "asdf": "       1",
+        "asd": "       "
+    },
+    "k8s": {},
+    "docker-prod": {
+        "Enabled": "False"
+    },
+    "docker-manager": {},
+    "w11-root": {},
+    "w11-template": {
+        "LifeTime": "1w",
+        "key1": "werty",
+        "key2": {
+          "key2_1": "2_1",
+          "key2_2": "2_2"
+        }
+    },
+    "LXD-PROD": {}
+}

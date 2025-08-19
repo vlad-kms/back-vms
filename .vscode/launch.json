@@ -1,0 +1,51 @@
+{
+    // Используйте IntelliSense, чтобы узнать о возможных атрибутах.
+    // Наведите указатель мыши, чтобы просмотреть описания существующих атрибутов.
+    // Для получения дополнительной информации посетите: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "bashdb",
+            "request": "launch",
+            "name": "json.sh",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}/json.sh",
+            "args": []
+        },
+        {
+            "type": "bashdb",
+            "request": "launch",
+            "name": "back-vol.sh",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}/back-vol.sh",
+            "args": ["-g", "cron-vm.json", "--debug", "--name", "dev-deb-001"]
+        },
+        {
+            "type": "bashdb",
+            "request": "launch",
+            "name": "back-vol.sh VOLUME",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}/back-vol.sh",
+            "args": ["--debug", "--name", "vm1", "-s", "test/ds2", "-d", "/mnt/test/ds1/back", "-c", "--no-remove-tmp", "--dry-run"]
+            //"args": ["--debug", "--name", "vm1", "-s", "test/ds2", "-d", "/mnt/test/ds1/back"]
+        },
+        {
+            "type": "bashdb",
+            "request": "launch",
+            "name": "back-vol.sh JSON",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}/back-vol.sh",
+            //"args": ["--debug", "--name", "vm1", "-s", "test/ds2", "-d", "/mnt/test/ds1/back", "-c", "--no-remove-tmp"]
+            "args": ["--debug", "-s", "test/ds2", "-d", "/mnt/test/ds1/back", "--dry-run", "--config", "cron-vm-deb.json", "-c"]
+        },
+        {
+            "type": "bashdb",
+            "request": "launch",
+            "name": "1.sh",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}/1.sh",
+            "args": ["-g", "cron-vm-deb.json", "--name", "vm1", "--dry-run", "-s", "test/ds2", "-d", "/mnt/test/ds1/back" ]
+        },
+
+    ]
+}

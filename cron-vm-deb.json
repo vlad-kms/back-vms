@@ -1,0 +1,31 @@
+{
+    "default": {
+      "Enabled": "True",
+      "LifeTime": "1m",
+      "AddNameVMToDest": "True",
+      "Destination": "/mnt/test/ds1",
+      "Compression": "True",
+      "Source": "test/ds1/back",
+      "Debug": "False",
+      "DryRun": "False",
+      "CreateSnapshot": "True",
+      "NoRemoveTemp": "False",
+      "Datasets": []
+    },
+    "dev-deb-001": {
+      "Source": "test/ds2/.sys/cnt",
+      "Datasets": [
+        "vol_1",
+        "vol_2",
+        "test/ds2/.sys/vm/vol_3"
+      ]
+    },
+    "dev-deb-003": {
+      "Source": "test/ds2/.sys/vm",
+      "Enabled": "True"
+    },
+    "vm1": {
+      "CreateSnapshot": "True",
+      "Source": "test/ds2"
+    }
+}
