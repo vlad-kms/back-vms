@@ -34,18 +34,18 @@ help() {
           // Обязательная секция со значениями по-умолчанию.
           // Если в секции VM (контейнера) нет такого ключа, то значение будем брать из этой секции
           "default": {
-            "Enabled": "True",  // включено или нет резервирование
-            "curr_LifeTime": "1m",   // удалять (или нет) и срок жизни устаревших резервных копий)
-            "curr_destination": "1m",   // удалять (или нет): "/mnt/test/vms", // путь куда будем складывать резервные копии
-            "Compression": "True",  // включить или нет сжатие
-            "Source": "test/ds1/back",  //
-            "Debug": "False",
-            "DryRun": "False",
-            "CreateSnapshot": "True",
-            "NoRemoveTemp": "False",
-            "LogFile": "",
-            "Datasets": ""  // массив datasets данной VM для резервирования.
-                            // если он пустой (size=0), то dataset == имени секции
+            "Enabled": "True",          // включено или нет резервирование
+            "LifeTime": "1m",           // удалять (или нет) и срок жизни устаревших резервных копий)
+            "AddNameVMToDest": "True",  // добавить имя VM постфиксом к DEST
+            "Destination": "1m",        // удалять (или нет): "/mnt/test/vms", // путь куда будем складывать резервные копии
+            "Compression": "True",      // включить или нет сжатие
+            "Source": "test/ds1/back",  // полный путь к VOLUME (DATASET)
+            "Debug": "False",           // вывод отладочной информации
+            "DryRun": "False",          // не выполнять фактически команды
+            "CreateSnapshot": "True",   // создавать снапшоты или брать последний из ранее созданных
+            "NoRemoveTemp": "False",    // не удалять временные файлы
+            "Datasets": []              // массив datasets данной VM для резервирования.
+                                        // если он пустой (size=0), то dataset == имени секции (VM)
           },
           // секция конкретной vm (container) для резервирования
           // здесь параметр
@@ -72,6 +72,7 @@ debug() {
   if [[ $_debug_ -ne 0 ]]; then
     echo -e "${str_dt}${1}" 1>&2
   fi
+  # логирование
   if [[ -n "$_log_file_" ]]; then
     echo -e "${str_dt}${1}" >> "$_log_file_"
   fi
@@ -91,7 +92,9 @@ get_json_value() {
   local json_file="$1"
   local section="$2"
   local _key="$3"
-  local default="$4"
+  local required="$4"
+  local default="$5"
+  debug "get_json_value (json_file: $json_file, section: $section, _key: $_key, required: $required, default: $default)"
   # section обрамить ""
   [[ ! "$section" =~ ^\"(.*)$ ]] && section="\"$section\""
   if [ ! -f "$json_file" ]; then
@@ -108,18 +111,21 @@ get_json_value() {
   fi
   if [[ -z "$_value" ]] || [[ "$_value" == "null" ]]; then
     # подготовить значение по-умолчанию.
-    # Если передан параметр $4 (default), то вернуть это значение и exit 0
+    # Если передан параметр $4 (default), то вернуть это значение
     # Если не передан параметр $4 (default), то считать из json файла в секции .default.$_key и вернуть это значение и exit 0
     # Иначе вернуть пустую строку и exit 1
     if [ -z "$default" ]; then
       default="$(jq -r ".default.$_key" "$json_file" | sed -E 's/^\s*$//p')"
     fi
     if [[ -z "$default" ]] || [[ "$default" == "null" ]]; then
-      echo "ERROR: значение $_key не может быть неопределенным" >&2
-      exit 1
-    else
-      echo "$default"
+      if [[ $required -ne 0 ]]; then
+        echo "ERROR: значение $_key не может быть неопределенным" >&2
+        exit 1
+      else
+        default=''
+      fi
     fi
+    echo "$default"
   else
     echo "$_value"
   fi
@@ -127,17 +133,17 @@ get_json_value() {
 
 backup_one_ds () {
   # резервирование одного VOLUME (DATASET)
-  # $1  - $nvm        ; имя VOLUME (DATASET)
-  # $2  - $dest       ; папка назначения
-  # $3  - $src        ; source VOLUME (DATASET)
-  # $4  - $_debug     ; отладка
-  # $5  - $_dry_run_  ; не выполнять фактически команды
-  # $6  - $_create_sn_  ; создавать SNAPSHOT
-  # $7  - $_no_remove_tmp_  ; не удалять временные файлы
-  # $8  - $_log_file_ ; имя файла логов
-  # $9  - $_lifetime_ ; время жизни резервных копий
-  # $10 - $_compression_  ; архивировать или нет резервные копии
-  # используются глобальные переменные:
+  # $1  - $nvm                  ; имя VOLUME (DATASET)
+  # $2  - $dest                 ; папка назначения
+  # $3  - $src                  ; source VOLUME (DATASET)
+  # $4  - $_debug               ; отладка
+  # $5  - $_dry_run_            ; не выполнять фактически команды
+  # $6  - $_create_sn_          ; создавать SNAPSHOT
+  # $7  - $_no_remove_tmp_      ; не удалять временные файлы
+  # $8  - $_lifetime_           ; имя файла логов
+  # $9  - $_compression_        ; время жизни резервных копий
+  # $10 - $_add_namevm_to_dest_ ; добавлять к DEST имя VM
+  debug "BEGIN BACKUP VOLUME (DATASET) ======================================================="
   local _l_nvm_="$1"
   local _l_dest_="$2"
   local _l_src_="$3"
@@ -145,9 +151,19 @@ backup_one_ds () {
   local _l_dry_run_=$5
   local _l_create_sn_=$6
   local _l_no_remove_tmp_=$7
-  local _l_log_file_="$8"
-  local _l_lifetime_="$9"
-  local _l_compression_=${10}
+  local _l_lifetime_="$8"
+  local _l_compression_=${9}
+  local _l_add_namevm_to_dest_=${10}
+  debug "_l_nvm_: ${_l_nvm_}"
+  debug "_l_dest_: ${_l_dest_}"
+  debug "_l_src_: ${_l_src_}"
+  debug "_l_debug_: ${_l_debug_}"
+  debug "_l_dry_run_: ${_l_dry_run_}"
+  debug "_l_create_sn_: ${_l_create_sn_}"
+  debug "_l_no_remove_tmp_: ${_l_no_remove_tmp_}"
+  debug "_l_lifetime_: ${_l_lifetime_}"
+  debug "_l_compression_: ${_l_compression_}"
+  debug "_l_add_namevm_to_dest_: ${_l_add_namevm_to_dest_}"
 
   local nsp=""
   if zfs list -t all -r "${_l_src_}/${_l_nvm_}" 1>/dev/null 2>/dev/null; then
@@ -157,10 +173,11 @@ backup_one_ds () {
       local name_sn_auto="${_l_nvm_}$(date +"@auto-%Y-%m-%d_%H-%M")"
       debug "name_sn_auto: ${name_sn_auto}"
       nsp="${_l_src_}/${name_sn_auto}"
+      debug "Create snapshot ${nsp}"
       if [[ $_l_dry_run_ -ne 0 ]]; then
-        echo "zfs snapshot ${_l_src_}/${name_sn_auto}"
+        debug "%%% CMD %%% ::: zfs snapshot ${_l_src_}/${name_sn_auto}"
+        #echo "zfs snapshot ${_l_src_}/${name_sn_auto}"
       else
-        debug "Create snapshot ${nsp}"
         zfs snapshot "${nsp}"
         if [ $? -ne 0 ]; then
           echo "Error create snapshot ${nsp}"
@@ -182,7 +199,8 @@ backup_one_ds () {
     local dest_file="${_l_dest_}/${nsp_only}.zfs"
     debug "Save snapshot ${nsp} into file ${dest_file}"
     if [[ ${_l_dry_run_} -ne 0 ]]; then
-      echo "zfs send \"$nsp\" > \"${dest_file}\""
+      debug "%%% CMD %%% ::: zfs send \"$nsp\" > \"${dest_file}\""
+      #echo "zfs send \"$nsp\" > \"${dest_file}\""
     else
       zfs send "$nsp" > "${dest_file}"
     fi
@@ -201,7 +219,8 @@ backup_one_ds () {
       # архивируем файл резервной копии
       debug "Archiving the backup copy ${dest_file} to file ${dest_file_arc}"
       if [[ $_l_dry_run_ -ne 0 ]]; then
-        echo "tar -cvzf \"${dest_file_arc}\" $flag_remove \"${dest_file}\""
+        debug "%%% CMD %%% ::: tar -cvzf \"${dest_file_arc}\" $flag_remove \"${dest_file}\""
+        #echo "tar -cvzf \"${dest_file_arc}\" $flag_remove \"${dest_file}\""
       else
         tar -cvzf "${dest_file_arc}" $flag_remove "${dest_file}" 1> /dev/null 2> /dev/null
       fi
@@ -209,21 +228,20 @@ backup_one_ds () {
   else
     echo "Cannot open ${_l_src_}/${_l_nvm_}: dataset does not exis"
   fi
-  debug " END =========================================================="
+  debug "END BACKUP VOLUME (DATASET) ========================================================="
 }
 
 backup_from_config () {
   # $1 - имя файла конфигурации
   #   Глобальные переменные, если определены, то будут значениями по-умолчанию
-  #   $dest   - папка назначения
-  #   $src    - source VOLUME (DATASET)
-  #   $_debug_ )- отлад#   $_ddry_run=ка
-  #   $_ET)
-  #   $_debug_ )- отлад#  dry_run_  -$_dry_run_ )ыполнять фактически команды
-  #   $_create_sn_  - создавать SNAPSHOT
+  #   $dest           - папка назначения
+  #   $src            - source VOLUME (DATASET)
+  #   $_debug_        - отладка
+  #   $_dry_run_      - выполнять фактически команды
+  #   $_create_sn_    - создавать SNAPSHOT
   #   $_no_remove_tmp_  - не удалять временные файлы
-  #   $_log_file_ - имя файла логов
-  #   $_lifetime_ - время жизни резервных копий
+  #   $_log_file_     - имя файла логов
+  #   $_lifetime_     - время жизни резервных копий
   #   $_compression_  - архивировать или нет резервные копии
   
   [[ -z $1 ]] && {
@@ -237,7 +255,7 @@ backup_from_config () {
   local cfg="${1}"
   # проверить синтаксис JSON файла
   debug "Проверить синтаксис JSON файла конфигурации ${cgf}"
-  if ! jq '.' "${cfg}" 2>1 > /dev/null ; then
+  if ! jq '.' "${cfg}" 2>&1 > /dev/null ; then
     err=$(jq '.' "${cfg}" 2>&1)
     echo -e "ERROR: ошибка синтаксиса JSON файла ${cfg}\n    ${err}" >&2;
     exit 1
@@ -250,24 +268,132 @@ backup_from_config () {
   vm_count=0
   for v in ${keys[@]}; do
     if [[ "$v" != "\"default\"" ]]; then
-      debug "Кандидат на резервирование: $v"
-      local _curr_enabled=$(get_json_value "$cfg" "$v" "Enabled")
+      debug "--- Подготовка к резервированию ${v}"
+      # убрать обрамляющие двойные кавычки, если они есть
+      local _v1=$(echo "$v" | sed -En 's/^["]?([^"]*)["]?$/\1/p')
+      local _curr_enabled=$(_lower "$(get_json_value "$cfg" "$v" "Enabled" 1)")
+      local _curr_lifetime=$(_lower "$(get_json_value "$cfg" "$v" "LifeTime" 1 "${_lifetime_}")")
+      local _curr_destination=$(get_json_value "$cfg" "$v"  "Destination" 1 "${dest}")
+      local _curr_compression=$(_lower "$(get_json_value "$cfg" "$v" "Compression" 1 "${_compression_}")")
+      if [[ "$_curr_compression" == "true" ]]; then
+        _curr_compression=1
+      elif [[ "$_curr_compression" == "false" ]]; then
+        _curr_compression=0
+      #else
+      #  _curr_compression=$_curr_compression
+      fi
+      local _curr_source=$(get_json_value "$cfg" "$v" "Source" 1 "${src}")
+      local _curr_debug=$(_lower "$(get_json_value "$cfg" "$v" "Debug" 1 "$_debug_")")
+      if [[ "$_curr_debug" == "true" ]]; then
+        _curr_debug=1
+      elif [[ "$_curr_debug" == "false" ]]; then
+        _curr_debug=0
+      fi
+      local _curr_dry_run=$(_lower "$(get_json_value "$cfg" "$v" "DryRun" 1 "$_dry_run_")")
+      if [[ "$_curr_dry_run" == "true" ]]; then
+        _curr_dry_run=1
+      elif [[ "$_curr_dry_run" == "false" ]]; then
+        _curr_dry_run=0
+      fi
+      local _curr_create_sn=$(_lower "$(get_json_value "$cfg" "$v" "CreateSnapshot" 1 "$_create_sn_")")
+      if [[ "$_curr_create_sn" == "true" ]]; then
+        _curr_create_sn=1
+      elif [[ "$_curr_create_sn" == "false" ]]; then
+        _curr_create_sn=0
+      fi
+      local _curr_no_remove_tmp=$(_lower "$(get_json_value "$cfg" "$v" "NoRemoveTemp" 1 "$_no_remove_tmp_")")
+      if [[ "$_curr_no_remove_tmp" == "true" ]]; then
+        _curr_no_remove_tmp=1
+      elif [[ "$_curr_no_remove_tmp" == "true" ]]; then
+        _curr_no_remove_tmp=0
+      fi
+      local _curr_datasets=($(echo "$(get_json_value "$cfg" "$v" "Datasets" 1)" | jq '.[]'))
+      local _curr_add_namevm_to_dest=$(_lower "$(get_json_value "$cfg" "$v" "AddNameVMToDest" 1 "$_add_namevm_to_dest")")
+      if [[ "$_curr_add_namevm_to_dest" == "true" ]]; then
+        _curr_add_namevm_to_dest=1
+      elif [[ "$_curr_add_namevm_to_dest" == "true" ]]; then
+        _curr_add_namevm_to_dest=0
+      fi
+      local _curr_name=''
+      # Если требуется, то добавлять имя VM к DESTINATION
+      [[ $_curr_add_namevm_to_dest -ne 0 ]] && {
+        _curr_destination="${_curr_destination}/${_v1}"
 
-      local _curr_lifetime=$(get_json_value "$cfg" "$v" "LifeTime" "${_lifetime_}")
-      local _curr_destination=$(get_json_value "$cfg" "$v"  "Destination" "${dest}")
-      local _curr_compression=$(get_json_value "$cfg" "$v" "Compression" "${_compression_}")
-      local _curr_source=$(get_json_value "$cfg" "$v" "Source" "${src}")
-      local _curr_debug=$(get_json_value "$cfg" "$v" "Debug" "$_debug_")
-      local _curr_dry_run=$(get_json_value "$cfg" "$v" "DryRun" "$_dry_run_")
-      #"CreateSnapshot": "True",
-      #"NoRemoveTemp": "False",
-      #"LogFile": "",
-      #"Datasets": []
-
-
+        if [[ ${_curr_dry_run} -ne 0 ]]; then
+          debug "%%% CMD %%% ::: mkdir -p \"${_curr_destination}\""
+          #echo "zfs send \"$nsp\" > \"${dest_file}\""
+        else
+          mkdir -p "${_curr_destination}"
+        fi
+      }
+      #
       debug "_curr_enabled: $_curr_enabled"
+      debug "_curr_lifetime: $_curr_lifetime"
+      debug "_curr_destination: $_curr_destination"
+      debug "_curr_compression: $_curr_compression"
+      debug "_curr_source :$_curr_source"
+      debug "_curr_debug: $_curr_debug"
+      debug "_curr_dry_run: $_curr_dry_run"
+      debug "_curr_create_sn: $_curr_create_sn"
+      debug "_curr_no_remove_tmp: $_curr_no_remove_tmp"
+      debug "_curr_datasets: ${_curr_datasets[*]}"
+      debug "_curr_add_namevm_to_dest: ${_curr_add_namevm_to_dest}"
+      # Эта VM подлежит резервированию
+      if [[ "$_curr_enabled" == 'true' ]]; then
+        debug "Данная VM ${v} подлежит резервированию"
+        if [[ ${#_curr_datasets[*]} -eq 0 ]]; then
+          _curr_datasets=($v)
+        fi
+        local _ds_=''
+        for _ds_ in ${_curr_datasets[@]}; do
+          # убрать обрамляющие двойные кавычки, если они есть
+          _ds_=$(echo "$_ds_" | sed -En 's/^["]?([^"]*)["]?$/\1/p')
+          debug "Резервируем VOLUME (DATASET) $_ds_"
+          if [[ "$(basename "$_ds_")" != "$_ds_" ]]; then
+            _curr_source=$(dirname "$_ds_");
+            _curr_name=$(basename "$_ds_")
+          else
+            _curr_name="$_ds_"
+          fi
+          # $1  - $_curr_name         ; имя VOLUME (DATASET)
+          # $2  - $_curr_destination  ; папка назначения
+          # $3  - $_curr_source       ; source VOLUME (DATASET)
+          # $4  - $_curr_debug        ; отладка
+          # $5  - $_curr_dry_run      ; не выполнять фактически команды
+          # $6  - $_curr_create_sn    ; создавать SNAPSHOT
+          # $7  - $_curr_no_remove_tmp; не удалять временные файлы
+          # $8  - $_curr_lifetime     ; время жизни резервных копий
+          # $9  - $_curr_compression  ; архивировать или нет резервные копии
+          # $10 - $_curr_add_namevm_to_dest ; добавлять к DEST имя VM
+          debug "backup_one_ds
+                          nvm:\"$_curr_name\"
+                          dest:\"$_curr_destination\"
+                          src:\"$_curr_source\"
+                          debug:$_curr_debug
+                          dry_run:$_curr_dry_run
+                          create_sn:$_curr_create_sn
+                          no_remove_tmp:$_curr_no_remove_tmp
+                          lifitime:\"$_curr_lifetime\"
+                          compression:$_curr_compression
+                          add_namevm_to_dest:$_curr_add_namevm_to_dest"
+          backup_one_ds \
+            "$_curr_name" \
+            "$_curr_destination" \
+            "$_curr_source" \
+            $_curr_debug \
+            $_curr_dry_run \
+            $_curr_create_sn \
+            $_curr_no_remove_tmp \
+            "$_curr_lifetime" \
+            $_curr_compression \
+            $_curr_add_namevm_to_dest
+        done
+        # инкремент счетчика зарезервированных VM
+        vm_count=$(( ${vm_count} + 1 ))
+      fi
     fi
   done
+  debug "Количество зарезервированных VM: ${vm_count}"
   #local json_file="$1"
   #local section="$2"
   #local _key="$3"
@@ -282,7 +408,7 @@ backup_from_config () {
   echo -e "ERROR: не существует команды jq. Сначала установите пакет jq, например:\n  apt install jq\n    ||\n  apk add jq" >&2
   exit 1
 }
-if ! args=$(getopt -u -o 'hn:d:s:cl:g:t:p' --long 'help,name:,dest:,source:,debug,create-snapshot,dry-run,no-remove-tmp,log:,config:,lifetime:,no-compression' -- "$@"); then
+if ! args=$(getopt -u -o 'hn:d:s:cl:g:t:pa' --long 'help,name:,dest:,source:,debug,create-snapshot,dry-run,no-remove-tmp,log:,config:,lifetime:,no-compression,add-namevm-to-dest' -- "$@"); then
   help;
   exit 1
 fi
@@ -339,6 +465,10 @@ for i; do
       _compression_=0
       shift
       ;;
+    '-a' | '--add-namevm-to-dest')
+      _add_namevm_to_dest_=1
+      shift
+      ;;
     else)
       echo "Неверный параметр:" 1>&2
       echo -e "\t$i" 1>&2
@@ -363,6 +493,7 @@ else
   _log_file_=${_log_file_:=''}
   _lifetime_=${_lifetime_:='1m'}
   _compression_=${_compression_:=1}
+  _add_namevm_to_dest_=${_add_namevm_to_dest_:=0}
 fi
 
 debug " BEGIN ========================================================"
@@ -374,11 +505,12 @@ debug "Source: $src"
 debug "Destination path:= $dest"
 debug "dry-run: $_dry_run_"
 debug "debug: $_debug_"
-debug "create-sn: $_create_sn_"
+debug "_create_sn_: $_create_sn_"
 debug "_no_remove_: $_no_remove_tmp_"
 debug "_log_file_: $_log_file_"
 debug "_lifetime_: $_lifetime_"
 debug "_compression_: $_compression_"
+debug "_add_namevm_to_dest_: $_add_namevm_to_dest_"
 
 if [ $_use_config_ -eq 1 ]; then
   # резервируем по JSON файлу конфигурации
@@ -387,18 +519,17 @@ if [ $_use_config_ -eq 1 ]; then
 else
   # резервируем по имени VOLUME (DATSET) и аргументам командной строки, игнорируя JSON файл конфигурации
   debug "Резервируем VOLUME (DATASET) ${src}/${nvm}"
-  # $1  - $nvm       ; имя VOLUME (DATASET)
-  # $2  - $dest      ; папка назначения
-  # $3  - $src       ; source VOLUME (DATASET)
-  # $4  - $_debug_ )  dry_run=;e VOLUME (DATASET)
-  # $4  - отладка
-  # $5  - $_dry_run_ ; не выполнять фактически команды
-  # $6  - $_create_sn_  ; создавать SNAPSHOT
+  # $1  - $nvm            ; имя VOLUME (DATASET)
+  # $2  - $dest           ; папка назначения
+  # $3  - $src            ; source VOLUME (DATASET)
+  # $4  - $_debug_        ; отладка
+  # $5  - $_dry_run_      ; не выполнять фактически команды
+  # $6  - $_create_sn_    ; создавать SNAPSHOT
   # $7  - $_no_remove_tmp_  ; не удалять временные файлы
-  # $8  - $_log_file_ ; имя файла логов
-  # $9  - $_lifetime_ ; время жизни резервных копий
-  # $10 - $_compression_  ; архивировать или нет резервные копии
-  backup_one_ds "$nvm" "$dest" "$src" $_debug_ $_dry_run_ $_create_sn_ $_no_remove_tmp_ "$_log_file_" "$_lifetime_" $_compression_
+  # $8  - $_lifetime_     ; время жизни резервных копий
+  # $9  - $_compression_  ; архивировать или нет резервные копии
+  # $10 - $_add_namevm_to_dest_ ; добавлять к DEST имя VM
+  backup_one_ds "$nvm" "$dest" "$src" $_debug_ $_dry_run_ $_create_sn_ $_no_remove_tmp_ "$_lifetime_" $_compression_ $_add_namevm_to_dest_
 fi
 
 exit 0

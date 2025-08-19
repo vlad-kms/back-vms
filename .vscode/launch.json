@@ -36,7 +36,7 @@
             "cwd": "${workspaceFolder}",
             "program": "${workspaceFolder}/back-vol.sh",
             //"args": ["--debug", "--name", "vm1", "-s", "test/ds2", "-d", "/mnt/test/ds1/back", "-c", "--no-remove-tmp"]
-            "args": ["--debug", "-s", "test/ds2", "-d", "/mnt/test/ds1/back", "--dry-run", "--config", "cron-vm-deb.json"]
+            "args": ["--debug", "-s", "test/ds2", "-d", "/mnt/test/ds1/back", "--dry-run", "--config", "cron-vm-deb.json", "-c"]
         },
         {
             "type": "bashdb",
