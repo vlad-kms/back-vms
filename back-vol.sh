@@ -70,12 +70,20 @@ debug() {
     str_dt="${str_dt}:\t"
   fi
   if [[ $_debug_ -ne 0 ]]; then
-    echo -e "${str_dt}${1}" 1>&2
+    echo -e "${str_dt}${_level_}${1}" 1>&2
   fi
   # логирование
   if [[ -n "$_log_file_" ]]; then
-    echo -e "${str_dt}${1}" >> "$_log_file_"
+    echo -e "${str_dt}${_level_}${1}" >> "$_log_file_"
   fi
+}
+
+_info() {
+  [[ "$_debug_" -eq 0 ]] && {
+    echo "$1" 1>&2
+  } || {
+    debug "$1"
+  }
 }
 
 _upper() {
@@ -98,7 +106,7 @@ get_json_value() {
   # section обрамить ""
   [[ ! "$section" =~ ^\"(.*)$ ]] && section="\"$section\""
   if [ ! -f "$json_file" ]; then
-    echo "ERROR: File $json_file not found" 1>&2
+    _info "ERROR: File $json_file not found"
     exit 1
   fi
   # проверить наличие параметра $2 (section)
@@ -119,7 +127,7 @@ get_json_value() {
     fi
     if [[ -z "$default" ]] || [[ "$default" == "null" ]]; then
       if [[ $required -ne 0 ]]; then
-        echo "ERROR: значение $_key не может быть неопределенным" >&2
+        _info "ERROR: значение $_key не может быть неопределенным"
         exit 1
       else
         default=''
@@ -143,7 +151,9 @@ backup_one_ds () {
   # $8  - $_lifetime_           ; имя файла логов
   # $9  - $_compression_        ; время жизни резервных копий
   # $10 - $_add_namevm_to_dest_ ; добавлять к DEST имя VM
-  debug "BEGIN BACKUP VOLUME (DATASET) ======================================================="
+  local _old_level_="${_level_}"
+  _level_="${_level_}\t"
+  debug "BEGIN BACKUP VOLUME (DATASET) backup_one_ds ======================================================="
   local _l_nvm_="$1"
   local _l_dest_="$2"
   local _l_src_="$3"
@@ -151,7 +161,7 @@ backup_one_ds () {
   local _l_dry_run_=$5
   local _l_create_sn_=$6
   local _l_no_remove_tmp_=$7
-  local _l_lifetime_="$8"
+  local _l_lifetime_=$(_lower "$8")
   local _l_compression_=${9}
   local _l_add_namevm_to_dest_=${10}
   debug "_l_nvm_: ${_l_nvm_}"
@@ -176,24 +186,28 @@ backup_one_ds () {
       debug "Create snapshot ${nsp}"
       if [[ $_l_dry_run_ -ne 0 ]]; then
         debug "%%% CMD %%% ::: zfs snapshot ${_l_src_}/${name_sn_auto}"
-        #echo "zfs snapshot ${_l_src_}/${name_sn_auto}"
       else
         zfs snapshot "${nsp}"
         if [ $? -ne 0 ]; then
-          echo "Error create snapshot ${nsp}"
-          exit 1
+          _info "Ошибка создания snapshot'а ${nsp} для ${_l_src_}/${_l_nvm_}"
+          debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
+          _level_="${_old_level_}"
+          return 1
         fi
       fi
     else
       # не требуется создавать SNAPSHOT
       # ищем последний (по дате создания) Snapshot
-      nsp=$(zfs list -t snapshot -r -o name "${_l_src_}/${_l_nvm_}" | grep -v NAME | sort -k1 | tail -n 1)
+      nsp=$(zfs list -t snapshot -r -o name "${_l_src_}/${_l_nvm_}" 2>/dev/null | grep -v NAME | sort -k1 | tail -n 1)
     fi
     [ -z $nsp ] && {
-      debug "Snapshot not exists. Abort execution."; exit 1
-    } || debug "Snapshot exists (nsp): $nsp"
+      _info "Snapshot не существует. Прервать выполнение резервирования ${_l_src_}/${_l_nvm_}."
+      debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
+      _level_="${_old_level_}"
+      return 1
+    } || debug "Snapshot существует (nsp): $nsp"
     local nsp_only=$(basename $nsp)
-    debug "Snapshot name only (nsp_only): $nsp_only"
+    debug "Имя snapshot'а (nsp_only): $nsp_only"
     
     # Пишем VOLUME в файл
     local dest_file="${_l_dest_}/${nsp_only}.zfs"
@@ -217,18 +231,82 @@ backup_one_ds () {
         rm --force "$dest_file_arc"
       fi
       # архивируем файл резервной копии
-      debug "Archiving the backup copy ${dest_file} to file ${dest_file_arc}"
+      debug "Архивируем файл резервной копии ${dest_file} в архив ${dest_file_arc}"
       if [[ $_l_dry_run_ -ne 0 ]]; then
         debug "%%% CMD %%% ::: tar -cvzf \"${dest_file_arc}\" $flag_remove \"${dest_file}\""
-        #echo "tar -cvzf \"${dest_file_arc}\" $flag_remove \"${dest_file}\""
       else
         tar -cvzf "${dest_file_arc}" $flag_remove "${dest_file}" 1> /dev/null 2> /dev/null
       fi
     fi
+    # работа с устаревшими копиями
+    local _l_lifetime_tmp=$(_lower $_l_lifetime_)
+    local _err_params=''
+    if [[ "$_l_lifetime_tmp" != 'd' ]]; then
+      debug "Работа с устаревшими копиями для VOLUME (DATASET) ${_l_src_}/${_l_nvm_}, параметр: \"${_l_lifetime_tmp}\""
+      # разбор параметра LifiTime
+      local lastchar="${_l_lifetime_tmp: -1}"
+      if [[ $lastchar =~ [dwm0-9] ]]; then
+        # последний символ один из 0-9, d, w, m
+        if [[ $lastchar =~ [0-9] ]]; then
+          # последний символ цифра
+          lastchar='d'
+        else
+          # последний символ один из d, w, m
+          # убрать его
+          _l_lifetime_tmp=${_l_lifetime_tmp?%}
+        fi
+        # проверить что полученная строка есть число
+        if [[ "${_l_lifetime_tmp}" =~ ^[0-9]+$ ]]; then
+          if [[ "$lastchar" == 'w' ]]; then
+            let "_l_lifetime_tmp = _l_lifetime_tmp * 7"
+          elif [[ "$lastchar" == 'm' ]]; then
+            let "_l_lifetime_tmp = _l_lifetime_tmp * 30"
+          else
+            let "_l_lifetime_tmp = _l_lifetime_tmp * 1"
+          fi
+          debug "Дней для устаревания копий: ${_l_lifetime_tmp}"
+        else
+          _err_params="Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+        fi
+
+      else
+        _err_params="Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+      fi
+
+      _info "${_err_params}"
+
+
+      # l = $LifeTime.Length
+      # if ($LifeTime -match '[dwm]$') {
+      #     $UnitLifeTime = [string]$LifeTime[-1]
+      #     $LifeTime = $LifeTime.Substring(0, $l-1)
+      # } else {
+      #     $UnitLifeTime = 'd'
+      # }
+      # $UnitLifeTime = $UnitLifeTime.ToLower()
+      # try {
+      #     $i = [int]$LifeTime
+      # }
+      # catch {
+      #     $i = -1
+      # }
+
+
+
+
+    else
+      debug "Работа с устаревшими копиями ОТКЛЮЧЕНА для VOLUME (DATASET) ${_l_nvm_}"
+    fi
   else
-    echo "Cannot open ${_l_src_}/${_l_nvm_}: dataset does not exis"
+    _info "Невозможно открыть ${_l_src_}/${_l_nvm_}: dataset не существует"
+    debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
+    _level_="${_old_level_}"
+    return 1
   fi
-  debug "END BACKUP VOLUME (DATASET) ========================================================="
+  _info "Создали резервную копию $([[ $_l_compression_ -eq 1 ]] && echo "${dest_file_arc}" || echo "${dest_file}") для dataset ${_l_src_}/${_l_nvm_}"
+  debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
+  _level_="${_old_level_}"
+  return 0
 }
 
 backup_from_config () {
@@ -244,12 +322,15 @@ backup_from_config () {
   #   $_lifetime_     - время жизни резервных копий
   #   $_compression_  - архивировать или нет резервные копии
   
+  local _old_level_="${_level_}"
+  _level_="${_level_}\t"
+  debug "BEGIN BACKUP ALL VOLUME's (DATASET's) backup_from_config ======================================================="
   [[ -z $1 ]] && {
-    echo "Не передано имя файла конфигурации" 1>&2
+    _info "Не передано имя файла конфигурации"
     exit 1
   }
   [[ ! -f $1 ]] && {
-    echo "Файл конфигурации ${1} не существует" 1>&2
+    _info "Файл конфигурации ${1} не существует"
     exit 1
   }
   local cfg="${1}"
@@ -257,7 +338,7 @@ backup_from_config () {
   debug "Проверить синтаксис JSON файла конфигурации ${cgf}"
   if ! jq '.' "${cfg}" 2>&1 > /dev/null ; then
     err=$(jq '.' "${cfg}" 2>&1)
-    echo -e "ERROR: ошибка синтаксиса JSON файла ${cfg}\n    ${err}" >&2;
+    _info -e "ERROR: ошибка синтаксиса JSON файла ${cfg}\n    ${err}";
     exit 1
   fi
   # считать все ключи верхнего уровня и преобразовать в массив bash,
@@ -340,7 +421,7 @@ backup_from_config () {
       debug "_curr_add_namevm_to_dest: ${_curr_add_namevm_to_dest}"
       # Эта VM подлежит резервированию
       if [[ "$_curr_enabled" == 'true' ]]; then
-        debug "Данная VM ${v} подлежит резервированию"
+        debug "Данная VM ${v} ПОДЛЕЖИТ резервированию"
         if [[ ${#_curr_datasets[*]} -eq 0 ]]; then
           _curr_datasets=($v)
         fi
@@ -366,16 +447,16 @@ backup_from_config () {
           # $9  - $_curr_compression  ; архивировать или нет резервные копии
           # $10 - $_curr_add_namevm_to_dest ; добавлять к DEST имя VM
           debug "backup_one_ds
-                          nvm:\"$_curr_name\"
-                          dest:\"$_curr_destination\"
-                          src:\"$_curr_source\"
-                          debug:$_curr_debug
-                          dry_run:$_curr_dry_run
-                          create_sn:$_curr_create_sn
-                          no_remove_tmp:$_curr_no_remove_tmp
-                          lifitime:\"$_curr_lifetime\"
-                          compression:$_curr_compression
-                          add_namevm_to_dest:$_curr_add_namevm_to_dest"
+                          ${_level_}nvm:\"$_curr_name\"
+                          ${_level_}dest:\"$_curr_destination\"
+                          ${_level_}src:\"$_curr_source\"
+                          ${_level_}debug:$_curr_debug
+                          ${_level_}dry_run:$_curr_dry_run
+                          ${_level_}create_sn:$_curr_create_sn
+                          ${_level_}no_remove_tmp:$_curr_no_remove_tmp
+                          ${_level_}lifitime:\"$_curr_lifetime\"
+                          ${_level_}compression:$_curr_compression
+                          ${_level_}add_namevm_to_dest:$_curr_add_namevm_to_dest"
           backup_one_ds \
             "$_curr_name" \
             "$_curr_destination" \
@@ -387,25 +468,29 @@ backup_from_config () {
             "$_curr_lifetime" \
             $_curr_compression \
             $_curr_add_namevm_to_dest
+          local res=$?
+          #_info "res: ${res}"
+          # инкремент счетчика зарезервированных Dataset's
+          [[ $res -eq 0 ]] && {
+            vm_count=$(( ${vm_count} + 1 ))
+          }
         done
-        # инкремент счетчика зарезервированных VM
-        vm_count=$(( ${vm_count} + 1 ))
+      else
+        debug "Данная VM ${v} НЕ ПОДЛЕЖИТ резервированию"
       fi
     fi
   done
-  debug "Количество зарезервированных VM: ${vm_count}"
-  #local json_file="$1"
-  #local section="$2"
-  #local _key="$3"
-  #local default="$4"
-
+  _info "Количество зарезервированных dataset's: ${vm_count}"
+  debug "END BACKUP ALL VOLUME's (DATASET's) backup_from_config ========================================================="
+  _level_="${_old_level_}"
 }
 
 ######################################################################################
 ######################################################################################
 ######################################################################################
+_level_=''
 [ -z $(which jq) ] && {
-  echo -e "ERROR: не существует команды jq. Сначала установите пакет jq, например:\n  apt install jq\n    ||\n  apk add jq" >&2
+  _info -e "ERROR: не существует команды jq. Сначала установите пакет jq, например:\n  apt install jq\n    ||\n  apk add jq"
   exit 1
 }
 if ! args=$(getopt -u -o 'hn:d:s:cl:g:t:pa' --long 'help,name:,dest:,source:,debug,create-snapshot,dry-run,no-remove-tmp,log:,config:,lifetime:,no-compression,add-namevm-to-dest' -- "$@"); then
@@ -470,8 +555,8 @@ for i; do
       shift
       ;;
     else)
-      echo "Неверный параметр:" 1>&2
-      echo -e "\t$i" 1>&2
+      _info "Неверный параметр:"
+      _info -e "\t$i"
       help;
       exit 0
       ;;
@@ -496,7 +581,9 @@ else
   _add_namevm_to_dest_=${_add_namevm_to_dest_:=0}
 fi
 
-debug " BEGIN ========================================================"
+debug "=============================================================="
+debug "BEGIN ========================================================"
+debug "=============================================================="
 debug "_use_config_: $_use_config_; $([ $_use_config_ -eq 0 ] && echo "режим резервирования VOLUME" || echo "режим резервирования по файлу конфигурации")"
 debug "_config_: $_config_"
 debug "Name VOL: $nvm"
@@ -512,6 +599,8 @@ debug "_lifetime_: $_lifetime_"
 debug "_compression_: $_compression_"
 debug "_add_namevm_to_dest_: $_add_namevm_to_dest_"
 
+#_level_='    '
+_level_=''
 if [ $_use_config_ -eq 1 ]; then
   # резервируем по JSON файлу конфигурации
   debug "Резервируем все DATASET's из JSON файлу конфигурации ${_config_}"
@@ -531,5 +620,7 @@ else
   # $10 - $_add_namevm_to_dest_ ; добавлять к DEST имя VM
   backup_one_ds "$nvm" "$dest" "$src" $_debug_ $_dry_run_ $_create_sn_ $_no_remove_tmp_ "$_lifetime_" $_compression_ $_add_namevm_to_dest_
 fi
+_level_=''
+debug "END =========================================================="
 
 exit 0
