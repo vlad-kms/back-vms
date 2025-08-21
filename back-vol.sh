@@ -18,17 +18,23 @@ help() {
       -d, --dest              путь к каталогу, в который будет сохранен архив (по умолчанию: /mnt/base-pool/vms/backup)
       -s, --source            путь к источнику для резервного копирования (по умолчанию: base-pool/vms)
       -c, --create-snapshot   создать snapshot перед резервным копированием (по умолчанию: 0, не создавать SNAPSHOT)
-      -t, --lifetime          время хранения архива в формате:
-                                1m  - хранить месяцев,
+      -t, --lifetime          время хранения архива в формате: [±]?[0-9]+[dwmyc] или [dD]
+                                1m - хранить месяцев,
                                 1d  - хранить дней,
+                                1   - хранить дней,
                                 1w  - хранить недель,
+                                1y  - хранить год,
                                 d   - не удалаяются устаревшие копии
+                                '-' впереди означает дата назад
+                                '+'  впереди означает дата вперед
+                                Если отсутствует, то значит '-'
                               (по умолчанию: 1m, 1 месяц)
       -l, --log               файл для записи лога, если не указан, то не логировать (по умолчанию: '', нет файла для логирования, не вести логи)
       -p, --no-compression    архивировать SNAPSHOT или нет (по умолчанию: 0, архивировать)
       --dry-run               не выполнять команды фактически, только выводить их на экран (по умолчанию: 0, выполнять команды)
       --no-remove-tmp         не удалять временные файлы после архивирования (по умолчанию: 0, удалять врвеменные файлы)
       --debug                 режим отладки (по умолчанию: 0, режим отладки выключен)
+      -a, --add-namevm-to-dest  добавить имя VM постфиксом к DEST, т.е. архивировать будем в каталог DEST/NAME
 
     Описание JSON файла конфигурации:
       {
@@ -38,7 +44,7 @@ help() {
             "Enabled": "True",          // включено или нет резервирование
             "LifeTime": "1m",           // удалять (или нет) и срок жизни устаревших резервных копий
             "AddNameVMToDest": "True",  // добавить имя VM постфиксом к DEST
-            "Destination": "1m",        // удалять (или нет): "/mnt/test/vms", // путь куда будем складывать резервные копии
+            "Destination": "/mnt/test/vms", // путь куда будем складывать резервные копии
             "Compression": "True",      // включить или нет сжатие
             "Source": "test/ds1/back",  // полный путь к VOLUME (DATASET)
             "Debug": "False",           // вывод отладочной информации
@@ -239,6 +245,7 @@ backup_one_ds () {
         tar -cvzf "${dest_file_arc}" $flag_remove "${dest_file}" 1> /dev/null 2> /dev/null
       fi
     fi
+    _info "Создали резервную копию $([[ $_l_compression_ -eq 1 ]] && echo "${dest_file_arc}" || echo "${dest_file}") для dataset ${_l_src_}/${_l_nvm_}"
     # работа с устаревшими копиями
     local _l_lifetime_tmp=$(_lower $_l_lifetime_)
     local _err_params=''
@@ -315,7 +322,7 @@ backup_one_ds () {
             #_info "zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} -o name 2>/dev/null | tail +2 | xargs -I {} basename {} | sort -r"
             #local _list_snapshots=($(zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} 2>/dev/null | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r))
             local _list_snapshots=($(zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} -o name 2>/dev/null | tail +2))
-            echo "${_list_snapshots[*]}"
+            #echo "${_list_snapshots[*]}"
             if [[ "${#_list_snapshots[*]}" -gt 0 ]]; then
               for _e in ${_list_snapshots[*]}; do
                 # дата создания снапшота
@@ -329,7 +336,7 @@ backup_one_ds () {
                     _info "destroy \"${_e}\""
                   fi
                 else
-                  debug "Не удаляем устаревший snapshot ${_e} с датой создания $(date -d "@${_date_create}")"
+                  debug "Не удаляем snapshot ${_e} с датой создания $(date -d "@${_date_create}")"
                 fi
               done
             else
@@ -337,7 +344,28 @@ backup_one_ds () {
             fi
           fi
           # Удалить устаревшие файлы резервных копий
-          debug "Удаляем устаревшие файлы резервных копий"
+          debug "Удаляем файлы резервных копий, дата которых старше $(date -d "@${_oldest_date}")"
+          #stat vm_old_arch.json | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s
+          _arr_files=($(ls "${_l_dest_}"))
+          for _f_ in ${_arr_files[*]}; do
+            _d_f_s_=$(stat "${_l_dest_}/${_f_}" | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip')
+            if [[ -z ${_d_f_s_} ]] || [[ "${_d_f_s_}" == '-' ]]; then
+              _d_f_=$(stat "${_l_dest_}/${_f_}" | grep Modify | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s)
+            else
+              _d_f_=$(stat "${_l_dest_}/${_f_}" | grep Birth  | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s)
+            fi
+            #echo "$_f_ ::: $(date -d "@${_d_f_}")"
+            if [[ ${_d_f_} -lt ${_oldest_date} ]]; then
+              debug "Удаляем устаревший файл ${_l_dest_}/${_f_} с датой создания $(date -d "@${_d_f_}")"
+              if [[ ${_l_dry_run_} -eq 0 ]]; then
+                rm "${_l_dest_}/${_f_}"
+              else
+                _info "rm \"${_l_dest_}/${_f_}\""
+              fi
+            else
+              debug "Не удаляем файл ${_l_dest_}/${_f_} с датой создания $(date -d "@${_d_f_}")"
+            fi
+          done
         else
           # Были ошибки при анализе параметра LifeTime
           _info "${_err_params}"
@@ -354,7 +382,6 @@ backup_one_ds () {
     _level_="${_old_level_}"
     return 1
   fi
-  _info "Создали резервную копию $([[ $_l_compression_ -eq 1 ]] && echo "${dest_file_arc}" || echo "${dest_file}") для dataset ${_l_src_}/${_l_nvm_}"
   debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
   _level_="${_old_level_}"
   return 0
@@ -672,6 +699,8 @@ else
   backup_one_ds "$nvm" "$dest" "$src" $_debug_ $_dry_run_ $_create_sn_ $_no_remove_tmp_ "$_lifetime_" $_compression_ $_add_namevm_to_dest_
 fi
 _level_=''
+debug "=============================================================="
 debug "END =========================================================="
+debug "=============================================================="
 
 exit 0
