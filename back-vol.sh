@@ -1,6 +1,7 @@
 #!/bin/bash
 
 USE_DATE_LOG=1
+LC_ALL="C.UTF-8"
 
 help() {
   echo -e '
@@ -20,7 +21,7 @@ help() {
       -t, --lifetime          время хранения архива в формате:
                                 1m  - хранить месяцев,
                                 1d  - хранить дней,
-                                1c  - хранить количество файлов,
+                                1w  - хранить недель,
                                 d   - не удалаяются устаревшие копии
                               (по умолчанию: 1m, 1 месяц)
       -l, --log               файл для записи лога, если не указан, то не логировать (по умолчанию: '', нет файла для логирования, не вести логи)
@@ -35,7 +36,7 @@ help() {
           // Если в секции VM (контейнера) нет такого ключа, то значение будем брать из этой секции
           "default": {
             "Enabled": "True",          // включено или нет резервирование
-            "LifeTime": "1m",           // удалять (или нет) и срок жизни устаревших резервных копий)
+            "LifeTime": "1m",           // удалять (или нет) и срок жизни устаревших резервных копий
             "AddNameVMToDest": "True",  // добавить имя VM постфиксом к DEST
             "Destination": "1m",        // удалять (или нет): "/mnt/test/vms", // путь куда будем складывать резервные копии
             "Compression": "True",      // включить или нет сжатие
@@ -70,12 +71,20 @@ debug() {
     str_dt="${str_dt}:\t"
   fi
   if [[ $_debug_ -ne 0 ]]; then
-    echo -e "${str_dt}${1}" 1>&2
+    echo -e "${str_dt}${_level_}${1}" 1>&2
   fi
   # логирование
   if [[ -n "$_log_file_" ]]; then
-    echo -e "${str_dt}${1}" >> "$_log_file_"
+    echo -e "${str_dt}${_level_}${1}" >> "$_log_file_"
   fi
+}
+
+_info() {
+  [[ "$_debug_" -eq 0 ]] && {
+    echo "$1" 1>&2
+  } || {
+    debug "$1"
+  }
 }
 
 _upper() {
@@ -98,7 +107,7 @@ get_json_value() {
   # section обрамить ""
   [[ ! "$section" =~ ^\"(.*)$ ]] && section="\"$section\""
   if [ ! -f "$json_file" ]; then
-    echo "ERROR: File $json_file not found" 1>&2
+    _info "ERROR: File $json_file not found"
     exit 1
   fi
   # проверить наличие параметра $2 (section)
@@ -119,7 +128,7 @@ get_json_value() {
     fi
     if [[ -z "$default" ]] || [[ "$default" == "null" ]]; then
       if [[ $required -ne 0 ]]; then
-        echo "ERROR: значение $_key не может быть неопределенным" >&2
+        _info "ERROR: значение $_key не может быть неопределенным"
         exit 1
       else
         default=''
@@ -143,7 +152,9 @@ backup_one_ds () {
   # $8  - $_lifetime_           ; имя файла логов
   # $9  - $_compression_        ; время жизни резервных копий
   # $10 - $_add_namevm_to_dest_ ; добавлять к DEST имя VM
-  debug "BEGIN BACKUP VOLUME (DATASET) ======================================================="
+  local _old_level_="${_level_}"
+  _level_="${_level_}\t"
+  debug "BEGIN BACKUP VOLUME (DATASET) backup_one_ds ======================================================="
   local _l_nvm_="$1"
   local _l_dest_="$2"
   local _l_src_="$3"
@@ -151,7 +162,7 @@ backup_one_ds () {
   local _l_dry_run_=$5
   local _l_create_sn_=$6
   local _l_no_remove_tmp_=$7
-  local _l_lifetime_="$8"
+  local _l_lifetime_=$(_lower "$8")
   local _l_compression_=${9}
   local _l_add_namevm_to_dest_=${10}
   debug "_l_nvm_: ${_l_nvm_}"
@@ -176,24 +187,28 @@ backup_one_ds () {
       debug "Create snapshot ${nsp}"
       if [[ $_l_dry_run_ -ne 0 ]]; then
         debug "%%% CMD %%% ::: zfs snapshot ${_l_src_}/${name_sn_auto}"
-        #echo "zfs snapshot ${_l_src_}/${name_sn_auto}"
       else
         zfs snapshot "${nsp}"
         if [ $? -ne 0 ]; then
-          echo "Error create snapshot ${nsp}"
-          exit 1
+          _info "Ошибка создания snapshot'а ${nsp} для ${_l_src_}/${_l_nvm_}"
+          debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
+          _level_="${_old_level_}"
+          return 1
         fi
       fi
     else
       # не требуется создавать SNAPSHOT
       # ищем последний (по дате создания) Snapshot
-      nsp=$(zfs list -t snapshot -r -o name "${_l_src_}/${_l_nvm_}" | grep -v NAME | sort -k1 | tail -n 1)
+      nsp=$(zfs list -t snapshot -r -o name "${_l_src_}/${_l_nvm_}" 2>/dev/null | grep -v NAME | sort -k1 | tail -n 1)
     fi
     [ -z $nsp ] && {
-      debug "Snapshot not exists. Abort execution."; exit 1
-    } || debug "Snapshot exists (nsp): $nsp"
+      _info "Snapshot не существует. Прервать выполнение резервирования ${_l_src_}/${_l_nvm_}."
+      debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
+      _level_="${_old_level_}"
+      return 1
+    } || debug "Snapshot существует (nsp): $nsp"
     local nsp_only=$(basename $nsp)
-    debug "Snapshot name only (nsp_only): $nsp_only"
+    debug "Имя snapshot'а (nsp_only): $nsp_only"
     
     # Пишем VOLUME в файл
     local dest_file="${_l_dest_}/${nsp_only}.zfs"
@@ -217,18 +232,132 @@ backup_one_ds () {
         rm --force "$dest_file_arc"
       fi
       # архивируем файл резервной копии
-      debug "Archiving the backup copy ${dest_file} to file ${dest_file_arc}"
+      debug "Архивируем файл резервной копии ${dest_file} в архив ${dest_file_arc}"
       if [[ $_l_dry_run_ -ne 0 ]]; then
         debug "%%% CMD %%% ::: tar -cvzf \"${dest_file_arc}\" $flag_remove \"${dest_file}\""
-        #echo "tar -cvzf \"${dest_file_arc}\" $flag_remove \"${dest_file}\""
       else
         tar -cvzf "${dest_file_arc}" $flag_remove "${dest_file}" 1> /dev/null 2> /dev/null
       fi
     fi
+    # работа с устаревшими копиями
+    local _l_lifetime_tmp=$(_lower $_l_lifetime_)
+    local _err_params=''
+    if [[ "$_l_lifetime_tmp" != 'd' ]]; then
+      debug "Работа с устаревшими копиями для VOLUME (DATASET) ${_l_src_}/${_l_nvm_}, параметр: \"${_l_lifetime_tmp}\""
+      # разбор параметра LifiTime
+      if [[ ${_l_lifetime_tmp} =~ ^([+-]?[0-9]+[wmycd]?|[d])$ ]]; then
+        # совпадает с одним из шаблонов, шаг изменения даты:
+        # +1d   - добавить один день к дате
+        # -12w  - уменьшить дату на 12 недель
+        #  10y  - уменьшить дату на 10 лет
+        # -12m  - уменьшить дату на 12 месяцев
+        # d     - отключить уддаление устаревших копия
+        # 123   - соответствует -123d
+        # +12   - соответствует +12d
+        # TODO пока не реализовано: последний символ 'c' - означает количество оставляемых копия и удаление самых ранних до этого количества
+        local lastchar="${_l_lifetime_tmp: -1}"
+        local firstchar="${_l_lifetime_tmp:0:1}"
+        # первый символ цифра
+        if [[ $firstchar =~ [0-9] ]]; then
+          _l_lifetime_tmp="-${_l_lifetime_tmp}"
+        fi
+        if [[ $lastchar =~ [0-9wmycd] ]]; then
+          # последний символ один из 0-9, d, w, m, y, c
+          if [[ $lastchar =~ [0-9] ]]; then
+            # последний символ цифра
+            lastchar='d'
+          else
+            # последний символ один из d, w, m, y, c
+            # убрать его
+            _l_lifetime_tmp=${_l_lifetime_tmp%?}
+          fi
+          # проверить что полученная строка есть число
+          if [[ "${_l_lifetime_tmp}" =~ ^[-+]?[0-9]+$ ]]; then
+            if [[ "$lastchar" == 'w' ]]; then
+              local _l_unit="week"
+              #let "_l_lifetime_tmp = _l_lifetime_tmp * 7"
+            elif [[ "$lastchar" == 'm' ]]; then
+              local _l_unit="month"
+              #let "_l_lifetime_tmp = _l_lifetime_tmp * 30"
+            elif [[ "$lastchar" == 'y' ]]; then
+              local _l_unit="year"
+              #let "_l_lifetime_tmp = _l_lifetime_tmp * 365"
+            elif [[ "$lastchar" == 'd' ]]; then
+              local _l_unit="day"
+              #let "_l_lifetime_tmp = _l_lifetime_tmp * 1"
+            elif [[ "$lastchar" == 'c' ]]; then
+              local _l_unit="day"
+            fi
+            if [[ ${_l_lifetime_tmp} =~ ^[-+][0-9]+ ]]; then
+              local _l_val="${_l_lifetime_tmp} ${_l_unit}"
+              #debug "DELTA для устаревания копий: ${_l_val}"
+              local _date_=$(date +%Y-%m-%d)
+              local _oldest_date=$(date -d "${_l_val} ${_date_}" +%s)
+              debug "DELTA DATE для устаревания копий: ${_date_} === ${_oldest_date}"
+            else
+              _err_params="3. Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+            fi
+          else
+            _err_params="2. Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+          fi
+        else
+          _err_params="1. Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+        fi
+        if [[ -z ${_err_params} ]]; then
+          # Если не было ошибки при анализе параметра LifeTime
+          if [[ $_l_create_sn_ -ne 0 ]]; then
+            # Удалить устаревшие снепшоты
+            debug "Удаляем устаревшие snapshot's"
+            #a=($(zfs list -r -t snapshot backup/bak/esxi-ds | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r | sed -En 's/^[^@]*@auto-([0-9]{4})-([0-9]{2})-([0-9]{2}).*/\1\2\3/p')); for e in ${a[*]}; do d=$(date -d $e -u +%s); echo "$d"; done
+            #a=($(zfs list -r -t snapshot test/ds2/.sys/vm/vol_3 | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r;)); echo ${a[*]}
+            # список всех снапшотов для dataset, только имя, например: esxi-ds@auto-2025-06-05_20-21
+            # local _list_snapshot=($(zfs list -r -t ${_l_src_}/${_l_nvm_} | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r | sed -En 's/^[^@]*@auto-([0-9]{4})-([0-9]{2})-([0-9]{2}).*/\1\2\3/p'))
+            #_info "zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} -o name 2>/dev/null | tail +2 | xargs -I {} basename {} | sort -r"
+            #local _list_snapshots=($(zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} 2>/dev/null | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r))
+            local _list_snapshots=($(zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} -o name 2>/dev/null | tail +2))
+            echo "${_list_snapshots[*]}"
+            if [[ "${#_list_snapshots[*]}" -gt 0 ]]; then
+              for _e in ${_list_snapshots[*]}; do
+                # дата создания снапшота
+                local _date_create=$(zfs get -o value creation "${_e}" | tail +2 | date -f - +"%s")
+                #debug "Дата создания snapsot ${_e}: $(date -d "@${_date_create}") --- ${_date_create}"
+                if [[ ${_date_create} -lt ${_oldest_date} ]]; then
+                  debug "Удаляем устаревший snapshot ${_e} с датой создания $(date -d "@${_date_create}")"
+                  if [[ ${_l_dry_run_} -eq 0 ]]; then
+                    zfs destroy "${_e}"
+                  else
+                    _info "destroy \"${_e}\""
+                  fi
+                else
+                  debug "Не удаляем устаревший snapshot ${_e} с датой создания $(date -d "@${_date_create}")"
+                fi
+              done
+            else
+              debug "Нет snapshot's для ${_l_src_}/${_l_nvm_}"
+            fi
+          fi
+          # Удалить устаревшие файлы резервных копий
+          debug "Удаляем устаревшие файлы резервных копий"
+        else
+          # Были ошибки при анализе параметра LifeTime
+          _info "${_err_params}"
+        fi
+      else
+        _info "ERROR: Параметр LifiTime yt совпадает с шаблоном"
+      fi
+    else
+      debug "Работа с устаревшими копиями ОТКЛЮЧЕНА для VOLUME (DATASET) ${_l_nvm_}"
+    fi
   else
-    echo "Cannot open ${_l_src_}/${_l_nvm_}: dataset does not exis"
+    _info "Невозможно открыть ${_l_src_}/${_l_nvm_}: dataset не существует"
+    debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
+    _level_="${_old_level_}"
+    return 1
   fi
-  debug "END BACKUP VOLUME (DATASET) ========================================================="
+  _info "Создали резервную копию $([[ $_l_compression_ -eq 1 ]] && echo "${dest_file_arc}" || echo "${dest_file}") для dataset ${_l_src_}/${_l_nvm_}"
+  debug "END BACKUP VOLUME (DATASET) backup_one_ds ========================================================="
+  _level_="${_old_level_}"
+  return 0
 }
 
 backup_from_config () {
@@ -244,12 +373,15 @@ backup_from_config () {
   #   $_lifetime_     - время жизни резервных копий
   #   $_compression_  - архивировать или нет резервные копии
   
+  local _old_level_="${_level_}"
+  _level_="${_level_}\t"
+  debug "BEGIN BACKUP ALL VOLUME's (DATASET's) backup_from_config ======================================================="
   [[ -z $1 ]] && {
-    echo "Не передано имя файла конфигурации" 1>&2
+    _info "Не передано имя файла конфигурации"
     exit 1
   }
   [[ ! -f $1 ]] && {
-    echo "Файл конфигурации ${1} не существует" 1>&2
+    _info "Файл конфигурации ${1} не существует"
     exit 1
   }
   local cfg="${1}"
@@ -257,7 +389,7 @@ backup_from_config () {
   debug "Проверить синтаксис JSON файла конфигурации ${cgf}"
   if ! jq '.' "${cfg}" 2>&1 > /dev/null ; then
     err=$(jq '.' "${cfg}" 2>&1)
-    echo -e "ERROR: ошибка синтаксиса JSON файла ${cfg}\n    ${err}" >&2;
+    _info -e "ERROR: ошибка синтаксиса JSON файла ${cfg}\n    ${err}";
     exit 1
   fi
   # считать все ключи верхнего уровня и преобразовать в массив bash,
@@ -340,7 +472,7 @@ backup_from_config () {
       debug "_curr_add_namevm_to_dest: ${_curr_add_namevm_to_dest}"
       # Эта VM подлежит резервированию
       if [[ "$_curr_enabled" == 'true' ]]; then
-        debug "Данная VM ${v} подлежит резервированию"
+        debug "Данная VM ${v} ПОДЛЕЖИТ резервированию"
         if [[ ${#_curr_datasets[*]} -eq 0 ]]; then
           _curr_datasets=($v)
         fi
@@ -366,16 +498,16 @@ backup_from_config () {
           # $9  - $_curr_compression  ; архивировать или нет резервные копии
           # $10 - $_curr_add_namevm_to_dest ; добавлять к DEST имя VM
           debug "backup_one_ds
-                          nvm:\"$_curr_name\"
-                          dest:\"$_curr_destination\"
-                          src:\"$_curr_source\"
-                          debug:$_curr_debug
-                          dry_run:$_curr_dry_run
-                          create_sn:$_curr_create_sn
-                          no_remove_tmp:$_curr_no_remove_tmp
-                          lifitime:\"$_curr_lifetime\"
-                          compression:$_curr_compression
-                          add_namevm_to_dest:$_curr_add_namevm_to_dest"
+                          ${_level_}nvm:\"$_curr_name\"
+                          ${_level_}dest:\"$_curr_destination\"
+                          ${_level_}src:\"$_curr_source\"
+                          ${_level_}debug:$_curr_debug
+                          ${_level_}dry_run:$_curr_dry_run
+                          ${_level_}create_sn:$_curr_create_sn
+                          ${_level_}no_remove_tmp:$_curr_no_remove_tmp
+                          ${_level_}lifitime:\"$_curr_lifetime\"
+                          ${_level_}compression:$_curr_compression
+                          ${_level_}add_namevm_to_dest:$_curr_add_namevm_to_dest"
           backup_one_ds \
             "$_curr_name" \
             "$_curr_destination" \
@@ -387,25 +519,29 @@ backup_from_config () {
             "$_curr_lifetime" \
             $_curr_compression \
             $_curr_add_namevm_to_dest
+          local res=$?
+          #_info "res: ${res}"
+          # инкремент счетчика зарезервированных Dataset's
+          [[ $res -eq 0 ]] && {
+            vm_count=$(( ${vm_count} + 1 ))
+          }
         done
-        # инкремент счетчика зарезервированных VM
-        vm_count=$(( ${vm_count} + 1 ))
+      else
+        debug "Данная VM ${v} НЕ ПОДЛЕЖИТ резервированию"
       fi
     fi
   done
-  debug "Количество зарезервированных VM: ${vm_count}"
-  #local json_file="$1"
-  #local section="$2"
-  #local _key="$3"
-  #local default="$4"
-
+  _info "Количество зарезервированных dataset's: ${vm_count}"
+  debug "END BACKUP ALL VOLUME's (DATASET's) backup_from_config ========================================================="
+  _level_="${_old_level_}"
 }
 
 ######################################################################################
 ######################################################################################
 ######################################################################################
+_level_=''
 [ -z $(which jq) ] && {
-  echo -e "ERROR: не существует команды jq. Сначала установите пакет jq, например:\n  apt install jq\n    ||\n  apk add jq" >&2
+  _info -e "ERROR: не существует команды jq. Сначала установите пакет jq, например:\n  apt install jq\n    ||\n  apk add jq"
   exit 1
 }
 if ! args=$(getopt -u -o 'hn:d:s:cl:g:t:pa' --long 'help,name:,dest:,source:,debug,create-snapshot,dry-run,no-remove-tmp,log:,config:,lifetime:,no-compression,add-namevm-to-dest' -- "$@"); then
@@ -470,8 +606,8 @@ for i; do
       shift
       ;;
     else)
-      echo "Неверный параметр:" 1>&2
-      echo -e "\t$i" 1>&2
+      _info "Неверный параметр:"
+      _info -e "\t$i"
       help;
       exit 0
       ;;
@@ -496,7 +632,9 @@ else
   _add_namevm_to_dest_=${_add_namevm_to_dest_:=0}
 fi
 
-debug " BEGIN ========================================================"
+debug "=============================================================="
+debug "BEGIN ========================================================"
+debug "=============================================================="
 debug "_use_config_: $_use_config_; $([ $_use_config_ -eq 0 ] && echo "режим резервирования VOLUME" || echo "режим резервирования по файлу конфигурации")"
 debug "_config_: $_config_"
 debug "Name VOL: $nvm"
@@ -512,6 +650,8 @@ debug "_lifetime_: $_lifetime_"
 debug "_compression_: $_compression_"
 debug "_add_namevm_to_dest_: $_add_namevm_to_dest_"
 
+#_level_='    '
+_level_=''
 if [ $_use_config_ -eq 1 ]; then
   # резервируем по JSON файлу конфигурации
   debug "Резервируем все DATASET's из JSON файлу конфигурации ${_config_}"
@@ -531,5 +671,7 @@ else
   # $10 - $_add_namevm_to_dest_ ; добавлять к DEST имя VM
   backup_one_ds "$nvm" "$dest" "$src" $_debug_ $_dry_run_ $_create_sn_ $_no_remove_tmp_ "$_lifetime_" $_compression_ $_add_namevm_to_dest_
 fi
+_level_=''
+debug "END =========================================================="
 
 exit 0
