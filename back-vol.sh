@@ -1,6 +1,7 @@
 #!/bin/bash
 
 USE_DATE_LOG=1
+LC_ALL="C.UTF-8"
 
 help() {
   echo -e '
@@ -20,7 +21,7 @@ help() {
       -t, --lifetime          время хранения архива в формате:
                                 1m  - хранить месяцев,
                                 1d  - хранить дней,
-                                1c  - хранить количество файлов,
+                                1w  - хранить недель,
                                 d   - не удалаяются устаревшие копии
                               (по умолчанию: 1m, 1 месяц)
       -l, --log               файл для записи лога, если не указан, то не логировать (по умолчанию: '', нет файла для логирования, не вести логи)
@@ -35,7 +36,7 @@ help() {
           // Если в секции VM (контейнера) нет такого ключа, то значение будем брать из этой секции
           "default": {
             "Enabled": "True",          // включено или нет резервирование
-            "LifeTime": "1m",           // удалять (или нет) и срок жизни устаревших резервных копий)
+            "LifeTime": "1m",           // удалять (или нет) и срок жизни устаревших резервных копий
             "AddNameVMToDest": "True",  // добавить имя VM постфиксом к DEST
             "Destination": "1m",        // удалять (или нет): "/mnt/test/vms", // путь куда будем складывать резервные копии
             "Compression": "True",      // включить или нет сжатие
@@ -244,56 +245,106 @@ backup_one_ds () {
     if [[ "$_l_lifetime_tmp" != 'd' ]]; then
       debug "Работа с устаревшими копиями для VOLUME (DATASET) ${_l_src_}/${_l_nvm_}, параметр: \"${_l_lifetime_tmp}\""
       # разбор параметра LifiTime
-      local lastchar="${_l_lifetime_tmp: -1}"
-      if [[ $lastchar =~ [dwm0-9] ]]; then
-        # последний символ один из 0-9, d, w, m
-        if [[ $lastchar =~ [0-9] ]]; then
-          # последний символ цифра
-          lastchar='d'
-        else
-          # последний символ один из d, w, m
-          # убрать его
-          _l_lifetime_tmp=${_l_lifetime_tmp?%}
+      if [[ ${_l_lifetime_tmp} =~ ^([+-]?[0-9]+[wmycd]?|[d])$ ]]; then
+        # совпадает с одним из шаблонов, шаг изменения даты:
+        # +1d   - добавить один день к дате
+        # -12w  - уменьшить дату на 12 недель
+        #  10y  - уменьшить дату на 10 лет
+        # -12m  - уменьшить дату на 12 месяцев
+        # d     - отключить уддаление устаревших копия
+        # 123   - соответствует -123d
+        # +12   - соответствует +12d
+        # TODO пока не реализовано: последний символ 'c' - означает количество оставляемых копия и удаление самых ранних до этого количества
+        local lastchar="${_l_lifetime_tmp: -1}"
+        local firstchar="${_l_lifetime_tmp:0:1}"
+        # первый символ цифра
+        if [[ $firstchar =~ [0-9] ]]; then
+          _l_lifetime_tmp="-${_l_lifetime_tmp}"
         fi
-        # проверить что полученная строка есть число
-        if [[ "${_l_lifetime_tmp}" =~ ^[0-9]+$ ]]; then
-          if [[ "$lastchar" == 'w' ]]; then
-            let "_l_lifetime_tmp = _l_lifetime_tmp * 7"
-          elif [[ "$lastchar" == 'm' ]]; then
-            let "_l_lifetime_tmp = _l_lifetime_tmp * 30"
+        if [[ $lastchar =~ [0-9wmycd] ]]; then
+          # последний символ один из 0-9, d, w, m, y, c
+          if [[ $lastchar =~ [0-9] ]]; then
+            # последний символ цифра
+            lastchar='d'
           else
-            let "_l_lifetime_tmp = _l_lifetime_tmp * 1"
+            # последний символ один из d, w, m, y, c
+            # убрать его
+            _l_lifetime_tmp=${_l_lifetime_tmp%?}
           fi
-          debug "Дней для устаревания копий: ${_l_lifetime_tmp}"
+          # проверить что полученная строка есть число
+          if [[ "${_l_lifetime_tmp}" =~ ^[-+]?[0-9]+$ ]]; then
+            if [[ "$lastchar" == 'w' ]]; then
+              local _l_unit="week"
+              #let "_l_lifetime_tmp = _l_lifetime_tmp * 7"
+            elif [[ "$lastchar" == 'm' ]]; then
+              local _l_unit="month"
+              #let "_l_lifetime_tmp = _l_lifetime_tmp * 30"
+            elif [[ "$lastchar" == 'y' ]]; then
+              local _l_unit="year"
+              #let "_l_lifetime_tmp = _l_lifetime_tmp * 365"
+            elif [[ "$lastchar" == 'd' ]]; then
+              local _l_unit="day"
+              #let "_l_lifetime_tmp = _l_lifetime_tmp * 1"
+            elif [[ "$lastchar" == 'c' ]]; then
+              local _l_unit="day"
+            fi
+            if [[ ${_l_lifetime_tmp} =~ ^[-+][0-9]+ ]]; then
+              local _l_val="${_l_lifetime_tmp} ${_l_unit}"
+              #debug "DELTA для устаревания копий: ${_l_val}"
+              local _date_=$(date +%Y-%m-%d)
+              local _oldest_date=$(date -d "${_l_val} ${_date_}" +%s)
+              debug "DELTA DATE для устаревания копий: ${_date_} === ${_oldest_date}"
+            else
+              _err_params="3. Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+            fi
+          else
+            _err_params="2. Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+          fi
         else
-          _err_params="Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+          _err_params="1. Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
         fi
-
+        if [[ -z ${_err_params} ]]; then
+          # Если не было ошибки при анализе параметра LifeTime
+          if [[ $_l_create_sn_ -ne 0 ]]; then
+            # Удалить устаревшие снепшоты
+            debug "Удаляем устаревшие snapshot's"
+            #a=($(zfs list -r -t snapshot backup/bak/esxi-ds | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r | sed -En 's/^[^@]*@auto-([0-9]{4})-([0-9]{2})-([0-9]{2}).*/\1\2\3/p')); for e in ${a[*]}; do d=$(date -d $e -u +%s); echo "$d"; done
+            #a=($(zfs list -r -t snapshot test/ds2/.sys/vm/vol_3 | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r;)); echo ${a[*]}
+            # список всех снапшотов для dataset, только имя, например: esxi-ds@auto-2025-06-05_20-21
+            # local _list_snapshot=($(zfs list -r -t ${_l_src_}/${_l_nvm_} | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r | sed -En 's/^[^@]*@auto-([0-9]{4})-([0-9]{2})-([0-9]{2}).*/\1\2\3/p'))
+            #_info "zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} -o name 2>/dev/null | tail +2 | xargs -I {} basename {} | sort -r"
+            #local _list_snapshots=($(zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} 2>/dev/null | tail +2 |awk '{print $1}' | xargs -I {} basename {} | sort -r))
+            local _list_snapshots=($(zfs list -t snapshot -d1 ${_l_src_}/${_l_nvm_} -o name 2>/dev/null | tail +2))
+            echo "${_list_snapshots[*]}"
+            if [[ "${#_list_snapshots[*]}" -gt 0 ]]; then
+              for _e in ${_list_snapshots[*]}; do
+                # дата создания снапшота
+                local _date_create=$(zfs get -o value creation "${_e}" | tail +2 | date -f - +"%s")
+                #debug "Дата создания snapsot ${_e}: $(date -d "@${_date_create}") --- ${_date_create}"
+                if [[ ${_date_create} -lt ${_oldest_date} ]]; then
+                  debug "Удаляем устаревший snapshot ${_e} с датой создания $(date -d "@${_date_create}")"
+                  if [[ ${_l_dry_run_} -eq 0 ]]; then
+                    zfs destroy "${_e}"
+                  else
+                    _info "destroy \"${_e}\""
+                  fi
+                else
+                  debug "Не удаляем устаревший snapshot ${_e} с датой создания $(date -d "@${_date_create}")"
+                fi
+              done
+            else
+              debug "Нет snapshot's для ${_l_src_}/${_l_nvm_}"
+            fi
+          fi
+          # Удалить устаревшие файлы резервных копий
+          debug "Удаляем устаревшие файлы резервных копий"
+        else
+          # Были ошибки при анализе параметра LifeTime
+          _info "${_err_params}"
+        fi
       else
-        _err_params="Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
+        _info "ERROR: Параметр LifiTime yt совпадает с шаблоном"
       fi
-
-      _info "${_err_params}"
-
-
-      # l = $LifeTime.Length
-      # if ($LifeTime -match '[dwm]$') {
-      #     $UnitLifeTime = [string]$LifeTime[-1]
-      #     $LifeTime = $LifeTime.Substring(0, $l-1)
-      # } else {
-      #     $UnitLifeTime = 'd'
-      # }
-      # $UnitLifeTime = $UnitLifeTime.ToLower()
-      # try {
-      #     $i = [int]$LifeTime
-      # }
-      # catch {
-      #     $i = -1
-      # }
-
-
-
-
     else
       debug "Работа с устаревшими копиями ОТКЛЮЧЕНА для VOLUME (DATASET) ${_l_nvm_}"
     fi
