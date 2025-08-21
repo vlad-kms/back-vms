@@ -32,7 +32,7 @@
       "Enabled": "True",
       "CreateSnapshot": "True",
       "Source": "test/ds2",
-      "LifeTime": "+1",
+      "LifeTime": "1",
       "DryRun": "False"
     }
 }
