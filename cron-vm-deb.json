@@ -14,7 +14,7 @@
     },
     "dev-deb-001": {
       "LifeTime": "1w",
-      "CreateSnapshot": "False",
+      "CreateSnapshot": "True",
       "Enabled": "True",
       "Source": "test/ds2/.sys/cnt",
       "Datasets": [
@@ -24,9 +24,9 @@
       ]
     },
     "dev-deb-003": {
-      "CreateSnapshot": "False",
+      "CreateSnapshot": "True",
       "Source": "test/ds2/.sys/vm",
-      "Enabled": "False"
+      "Enabled": "True"
     },
     "vm1": {
       "Enabled": "True",

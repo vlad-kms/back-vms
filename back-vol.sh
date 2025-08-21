@@ -344,7 +344,28 @@ backup_one_ds () {
             fi
           fi
           # Удалить устаревшие файлы резервных копий
-          debug "Удаляем устаревшие файлы резервных копий"
+          debug "Удаляем файлы резервных копий, дата которых старше $(date -d "@${_oldest_date}")"
+          #stat vm_old_arch.json | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s
+          _arr_files=($(ls "${_l_dest_}"))
+          for _f_ in ${_arr_files[*]}; do
+            _d_f_s_=$(stat "${_l_dest_}/${_f_}" | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip')
+            if [[ -z ${_d_f_s_} ]] || [[ "${_d_f_s_}" == '-' ]]; then
+              _d_f_=$(stat "${_l_dest_}/${_f_}" | grep Modify | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s)
+            else
+              _d_f_=$(stat "${_l_dest_}/${_f_}" | grep Birth  | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s)
+            fi
+            #echo "$_f_ ::: $(date -d "@${_d_f_}")"
+            if [[ ${_d_f_} -lt ${_oldest_date} ]]; then
+              debug "Удаляем устаревший файл ${_l_dest_}/${_f_} с датой создания $(date -d "@${_d_f_}")"
+              if [[ ${_l_dry_run_} -eq 0 ]]; then
+                rm "${_l_dest_}/${_f_}"
+              else
+                _info "rm \"${_l_dest_}/${_f_}\""
+              fi
+            else
+              debug "Не удаляем файл ${_l_dest_}/${_f_} с датой создания $(date -d "@${_d_f_}")"
+            fi
+          done
         else
           # Были ошибки при анализе параметра LifeTime
           _info "${_err_params}"
@@ -678,6 +699,8 @@ else
   backup_one_ds "$nvm" "$dest" "$src" $_debug_ $_dry_run_ $_create_sn_ $_no_remove_tmp_ "$_lifetime_" $_compression_ $_add_namevm_to_dest_
 fi
 _level_=''
+debug "=============================================================="
 debug "END =========================================================="
+debug "=============================================================="
 
 exit 0
