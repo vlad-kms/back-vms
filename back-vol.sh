@@ -95,12 +95,14 @@ _info() {
 
 _upper() {
   local s=$1
-  printf "${s^^}"
+  #printf "${s^^}"
+  printf "\"${s^^}\"" | sed -E 's/^"([^"]*)"$/\1/'
 }
 
 _lower() {
   local s=$1
-  printf "${s,,}"
+  #printf "${s,,}"
+  printf "\"${s,,}\"" | sed -E 's/^"([^"]*)"$/\1/'
 }
 
 get_json_value() {
@@ -251,7 +253,7 @@ backup_one_ds () {
     local _err_params=''
     if [[ "$_l_lifetime_tmp" != 'd' ]]; then
       debug "Работа с устаревшими копиями для VOLUME (DATASET) ${_l_src_}/${_l_nvm_}, параметр: \"${_l_lifetime_tmp}\""
-      # разбор параметра LifiTime
+      # разбор параметра LifeTime
       if [[ ${_l_lifetime_tmp} =~ ^([+-]?[0-9]+[wmycd]?|[d])$ ]]; then
         # совпадает с одним из шаблонов, шаг изменения даты:
         # +1d   - добавить один день к дате
@@ -346,7 +348,7 @@ backup_one_ds () {
           # Удалить устаревшие файлы резервных копий
           debug "Удаляем файлы резервных копий, дата которых старше $(date -d "@${_oldest_date}")"
           #stat vm_old_arch.json | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s
-          _arr_files=($(ls "${_l_dest_}"))
+          _arr_files=($(ls "${_l_dest_}" 2> /dev/null))
           for _f_ in ${_arr_files[*]}; do
             _d_f_s_=$(stat "${_l_dest_}/${_f_}" | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip')
             if [[ -z ${_d_f_s_} ]] || [[ "${_d_f_s_}" == '-' ]]; then
@@ -371,7 +373,7 @@ backup_one_ds () {
           _info "${_err_params}"
         fi
       else
-        _info "ERROR: Параметр LifiTime yt совпадает с шаблоном"
+        _info "ERROR: Параметр LifeTime не совпадает с шаблоном '^([+-]?[0-9]+[wmycd]?|[d])$'"
       fi
     else
       debug "Работа с устаревшими копиями ОТКЛЮЧЕНА для VOLUME (DATASET) ${_l_nvm_}"
@@ -432,6 +434,7 @@ backup_from_config () {
       local _v1=$(echo "$v" | sed -En 's/^["]?([^"]*)["]?$/\1/p')
       local _curr_enabled=$(_lower "$(get_json_value "$cfg" "$v" "Enabled" 1)")
       local _curr_lifetime=$(_lower "$(get_json_value "$cfg" "$v" "LifeTime" 1 "${_lifetime_}")")
+      #local _curr_lifetime=$(get_json_value "$cfg" "$v" "LifeTime" 1 "${_lifetime_}")
       local _curr_destination=$(get_json_value "$cfg" "$v"  "Destination" 1 "${dest}")
       local _curr_compression=$(_lower "$(get_json_value "$cfg" "$v" "Compression" 1 "${_compression_}")")
       if [[ "$_curr_compression" == "true" ]]; then
@@ -532,7 +535,7 @@ backup_from_config () {
                           ${_level_}dry_run:$_curr_dry_run
                           ${_level_}create_sn:$_curr_create_sn
                           ${_level_}no_remove_tmp:$_curr_no_remove_tmp
-                          ${_level_}lifitime:\"$_curr_lifetime\"
+                          ${_level_}lifetime:\"$_curr_lifetime\"
                           ${_level_}compression:$_curr_compression
                           ${_level_}add_namevm_to_dest:$_curr_add_namevm_to_dest"
           backup_one_ds \
