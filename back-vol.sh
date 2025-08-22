@@ -300,7 +300,7 @@ backup_one_ds () {
               #debug "DELTA для устаревания копий: ${_l_val}"
               local _date_=$(date +%Y-%m-%d)
               local _oldest_date=$(date -d "${_l_val} ${_date_}" +%s)
-              debug "DELTA DATE для устаревания копий: ${_date_} === ${_oldest_date}"
+              debug "DELTA DATE для устаревания копий: $(date -d "@${_oldest_date}") === ${_oldest_date}"
             else
               _err_params="3. Ошибка при работе с устаревшими резервными копиями для ${_l_src_}/${_l_nvm_}, ошибка параметра ${_l_lifetime_}."
             fi
