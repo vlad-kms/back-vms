@@ -13,7 +13,6 @@
       "Datasets": []
     },
     "dev-deb-001": {
-      "LifeTime": "+1",
       "CreateSnapshot": "True",
       "Enabled": "True",
       "Source": "test/ds2/.sys/cnt",

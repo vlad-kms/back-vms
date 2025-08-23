@@ -350,7 +350,7 @@ backup_one_ds () {
           #stat vm_old_arch.json | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s
           #_arr_files=($(ls "${_l_dest_}/${_l_nvm_}@auto"* 2> /dev/null))
           debug "Поиск резервных копий: find \"${_l_dest_}\" -maxdepth 1 -type f -name \"${_l_nvm_}@auto*\" | xargs -I {} basename {}"
-          _arr_files=($(find "${_l_dest_}" -maxdepth 1 -type f -name "${_l_nvm_}@auto*" | xargs -I {} basename {}))
+          _arr_files=($(find "${_l_dest_}" -maxdepth 1 -type f -name "${_l_nvm_}@auto*" 2>/dev/null | xargs -I {} basename {}))
           debug "Список резервных копий: ${_arr_files[*]}"
           for _f_ in ${_arr_files[*]}; do
            # Сначала проверяем дату Birth (создания файла),
