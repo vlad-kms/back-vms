@@ -348,7 +348,7 @@ backup_one_ds () {
           # Удалить устаревшие файлы резервных копий
           debug "Удаляем файлы резервных копий, дата которых старше $(date -d "@${_oldest_date}")"
           #stat vm_old_arch.json | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s
-          _arr_files=($(ls "${_l_dest_}" 2> /dev/null))
+          _arr_files=($(ls "${_l_dest_}/${_l_nvm_}@auto"* 2> /dev/null))
           for _f_ in ${_arr_files[*]}; do
             _d_f_s_=$(stat "${_l_dest_}/${_f_}" | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip')
             if [[ -z ${_d_f_s_} ]] || [[ "${_d_f_s_}" == '-' ]]; then
