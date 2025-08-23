@@ -46,6 +46,5 @@
             "program": "${workspaceFolder}/1.sh",
             "args": ["-g", "cron-vm-deb.json", "--name", "vm1", "--dry-run", "-s", "test/ds2", "-d", "/mnt/test/ds1/back" ]
         },
-
     ]
 }

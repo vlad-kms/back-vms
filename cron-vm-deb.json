@@ -2,7 +2,7 @@
     "default": {
       "Enabled": "True",
       "LifeTime": "1m",
-      "AddNameVMToDest": "True",
+      "AddNameVMToDest": "False",
       "Destination": "/mnt/test/ds1",
       "Compression": "True",
       "Source": "test/ds1/back",
@@ -21,18 +21,19 @@
         "vol_1",
         "vol_2",
         "test/ds2/.sys/vm/vol_3"
-      ]
+      ],
+      "DryRun": "False"
     },
     "dev-deb-003": {
       "CreateSnapshot": "True",
       "Source": "test/ds2/.sys/vm",
-      "Enabled": "True"
+      "Enabled": "True",
+      "DryRun": "False"
     },
     "vm1": {
       "Enabled": "True",
       "CreateSnapshot": "True",
       "Source": "test/ds2",
-      "LifeTime": "1",
       "DryRun": "False"
     }
 }
