@@ -348,16 +348,29 @@ backup_one_ds () {
           # Удалить устаревшие файлы резервных копий
           debug "Удаляем файлы резервных копий, дата которых старше $(date -d "@${_oldest_date}")"
           #stat vm_old_arch.json | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s
-          _arr_files=($(ls "${_l_dest_}/${_l_nvm_}@auto"* 2> /dev/null))
+          #_arr_files=($(ls "${_l_dest_}/${_l_nvm_}@auto"* 2> /dev/null))
+          debug "Поиск резервных копий: find \"${_l_dest_}\" -maxdepth 1 -type f -name \"${_l_nvm_}@auto*\" | xargs -I {} basename {}"
+          _arr_files=($(find "${_l_dest_}" -maxdepth 1 -type f -name "${_l_nvm_}@auto*" | xargs -I {} basename {}))
+          debug "Список резервных копий: ${_arr_files[*]}"
           for _f_ in ${_arr_files[*]}; do
+           # Сначала проверяем дату Birth (создания файла),
+           # если она есть, то берем ее
+           # иначе проверяем дату Change (изменения файла)
+           #  если она есть, то берем ее
+           #  иначе берем дату Modify (модификации файла)
             _d_f_s_=$(stat "${_l_dest_}/${_f_}" | grep Birth | sed -En 's/[^:]*:\s*(.*)$/\1/ip')
             if [[ -z ${_d_f_s_} ]] || [[ "${_d_f_s_}" == '-' ]]; then
-              _d_f_=$(stat "${_l_dest_}/${_f_}" | grep Modify | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s)
+              _d_f_s_=$(stat "${_l_dest_}/${_f_}" | grep Modify | sed -En 's/[^:]*:\s*(.*)$/\1/ip')
+              if [[ -z ${_d_f_s_} ]] || [[ "${_d_f_s_}" == '-' ]]; then
+                _d_f_=$(stat "${_l_dest_}/${_f_}" | grep Change | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s)
+              else
+                _d_f_=$(stat "${_l_dest_}/${_f_}" | grep Modify | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s)
+              fi
             else
               _d_f_=$(stat "${_l_dest_}/${_f_}" | grep Birth  | sed -En 's/[^:]*:\s*(.*)$/\1/ip' | date -f - +%s)
             fi
             #echo "$_f_ ::: $(date -d "@${_d_f_}")"
-            if [[ ${_d_f_} -lt ${_oldest_date} ]]; then
+            if [[ -n ${_d_f_} ]] && [[ ${_d_f_} -lt ${_oldest_date} ]]; then
               debug "Удаляем устаревший файл ${_l_dest_}/${_f_} с датой создания $(date -d "@${_d_f_}")"
               if [[ ${_l_dry_run_} -eq 0 ]]; then
                 rm "${_l_dest_}/${_f_}"

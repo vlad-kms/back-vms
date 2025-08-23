@@ -13,7 +13,7 @@
       "Datasets": []
     },
     "dev-deb-001": {
-      "LifeTime": "1w",
+      "LifeTime": "+1",
       "CreateSnapshot": "True",
       "Enabled": "True",
       "Source": "test/ds2/.sys/cnt",
@@ -22,16 +22,17 @@
         "vol_2",
         "test/ds2/.sys/vm/vol_3"
       ],
+      "AddNameVMToDest": "True",
       "DryRun": "False"
     },
     "dev-deb-003": {
       "CreateSnapshot": "True",
       "Source": "test/ds2/.sys/vm",
-      "Enabled": "True",
+      "Enabled": "False",
       "DryRun": "False"
     },
     "vm1": {
-      "Enabled": "True",
+      "Enabled": "False",
       "CreateSnapshot": "True",
       "Source": "test/ds2",
       "DryRun": "False"
