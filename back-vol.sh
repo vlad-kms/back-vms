@@ -587,6 +587,11 @@ _level_=''
   _info -e "ERROR: не существует команды jq. Сначала установите пакет jq, например:\n  apt install jq\n    ||\n  apk add jq"
   exit 1
 }
+[ -z $1 ] && {
+  help
+  exit 0
+}
+
 if ! args=$(getopt -u -o 'hn:d:s:cl:g:t:pa' --long 'help,name:,dest:,source:,debug,create-snapshot,dry-run,no-remove-tmp,log:,config:,lifetime:,no-compression,add-namevm-to-dest' -- "$@"); then
   help;
   exit 1
